@@ -106,18 +106,45 @@ jobs:
         run: |
           set -euo pipefail
           echo '== Checking Windows release directory ==' | tee -a build-windows.log
-          test -s build_win64/main.exe
-          test -s build_win64/game.ini
-          test -s build_win64/sim_config.ini
-          for dll in SDL2 libwinpthread-1 libenet-7 libgcc_s_seh-1 libstdc++-6 libffi-8; do
-            test -s "build_win64/${dll}.dll" || {
-              echo "Missing packaged DLL: ${dll}.dll" | tee -a build-windows.log
-              exit 1
-            }
-          done
+
+          # Show actual packaging results *before* assertions; this avoids
+          # another silent `test` failure when investigating a CI run.
+          if [[ ! -d build_win64 ]]; then
+            echo '::error title=Windows packaging failed::build_win64 is missing.' | tee -a build-windows.log
+            echo '== Available compiled executable == ' | tee -a build-windows.log
+            ls -lah .build/build_win64/main.exe 2>&1 | tee -a build-windows.log || true
+            exit 1
+          fi
           ls -lah build_win64 | tee -a build-windows.log
+
+          require_nonempty() {
+            if [[ ! -s "$1" ]]; then
+              echo "::error title=Invalid Windows distribution::Missing or empty required file: $1" | tee -a build-windows.log
+              exit 1
+            fi
+          }
+          require_file() {
+            if [[ ! -f "$1" ]]; then
+              echo "::error title=Invalid Windows distribution::Missing required file: $1" | tee -a build-windows.log
+              exit 1
+            fi
+          }
+
+          require_nonempty build_win64/main.exe
+          require_nonempty build_win64/game.ini
+          # This file is intentionally 0 bytes in the original repository.
+          # Require its presence, not a nonzero size.
+          require_file build_win64/sim_config.ini
+          require_nonempty build_win64/firmware.bin
+          if [[ ! -d build_win64/mods ]]; then
+            echo '::error title=Invalid Windows distribution::Missing mods directory' | tee -a build-windows.log
+            exit 1
+          fi
+          for dll in SDL2 libwinpthread-1 libenet-7 libgcc_s_seh-1 libstdc++-6 libffi-8; do
+            require_nonempty "build_win64/${dll}.dll"
+          done
           sha256sum build_win64/main.exe | tee -a build-windows.log
-          echo 'Packaged Windows executable, configuration, and required DLLs found.' | tee -a build-windows.log
+          echo 'Windows executable, configs (including empty sim_config.ini), firmware, mods and runtime DLLs verified.' | tee -a build-windows.log
 
       - name: Create Windows ZIP and checksum
         shell: pwsh
