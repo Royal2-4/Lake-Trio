@@ -76,6 +76,15 @@ jobs:
             echo 'Windows toolchain and packaging DLL preflight passed.'
           } 2>&1 | tee build-windows.log
 
+      # The checked-in graphics diff was prepared against a g3_handler.cpp
+      # variant containing extra blank lines. Rebase only this one diff against
+      # the exact pinned libntr commit; fail safely if nonblank code differs.
+      - name: Verify and rebase pinned libntr g3 graphics patch
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          python3 tools/scripts/rebase_libntr_g3_patch.py 2>&1 | tee -a build-windows.log
+
       - name: Build with the existing Makefile (make windows)
         shell: msys2 {0}
         run: |
