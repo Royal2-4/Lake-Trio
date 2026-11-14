@@ -1,0 +1,53 @@
+diff --git a/libraries/sim/src/gui/gui.c b/libraries/sim/src/gui/gui.c
+--- a/libraries/sim/src/gui/gui.c
++++ b/libraries/sim/src/gui/gui.c
+@@ -139,3 +139,5 @@
+-void SIM_GUI_Prj_Toolbar(int canImport) __attribute__((weak));
+-
++void SIM_GUI_Prj_Toolbar(int canImport) __attribute__((weak));
++int SIM_GUI_Prj_OverlayIsOpen(void) __attribute__((weak));
++int SIM_GUI_Prj_OverlayHandleEvent(const SDL_Event *) __attribute__((weak));
++
+ static void DrawSimulatorMenuBar(void)
+@@ -286,6 +288,22 @@
+ bool SIM_GUI_ProcessEvent(SDL_Event *aEvent)
+ {
+     if ((SIM_GUI_State || IsMenuBarVisible()) && s_showWindowPad && GUI_PadProcessEvent(aEvent)) return true;
++    if (SIM_GUI_Prj_OverlayHandleEvent && SIM_GUI_Prj_OverlayHandleEvent(aEvent)) return true;
++    if (SIM_GUI_Prj_OverlayIsOpen && SIM_GUI_Prj_OverlayIsOpen()) {
++        ImGui_ImplSDL2_ProcessEvent(aEvent);
++        // While the dashboard is open, prevent inputs from also reaching the
++        // emulated DS (including the stylus mouse-click events).
++        switch (aEvent->type) {
++        case SDL_KEYDOWN: case SDL_KEYUP:
++        case SDL_JOYBUTTONDOWN: case SDL_JOYBUTTONUP:
++        case SDL_JOYAXISMOTION: case SDL_JOYHATMOTION:
++        case SDL_CONTROLLERBUTTONDOWN: case SDL_CONTROLLERBUTTONUP:
++        case SDL_MOUSEMOTION: case SDL_MOUSEBUTTONDOWN:
++        case SDL_MOUSEBUTTONUP: case SDL_MOUSEWHEEL:
++            return true;
++        default: return false;
++        }
++    }
+     if ((aEvent->type == SDL_KEYDOWN || aEvent->type == SDL_KEYUP)
+         && aEvent->key.keysym.sym == SDLK_TAB) {
+         if (aEvent->type == SDL_KEYDOWN && !aEvent->key.repeat) {
+@@ -311,17 +329,7 @@
+         return true;
+     }
+     if (!SIM_GUI_State && !IsMenuBarVisible()) {
+-        if (!SIM_GUI_Prj_Toolbar) return false;
+-        // The small overlay should handle mouse clicks, not steal gameplay keys.
+-        const bool mouseEvent = aEvent->type == SDL_MOUSEMOTION
+-            || aEvent->type == SDL_MOUSEBUTTONDOWN
+-            || aEvent->type == SDL_MOUSEBUTTONUP
+-            || aEvent->type == SDL_MOUSEWHEEL;
+-        if (!mouseEvent) return false;
+-        ImGui_ImplSDL2_ProcessEvent(aEvent);
+-        const bool click = aEvent->type == SDL_MOUSEBUTTONDOWN
+-            || aEvent->type == SDL_MOUSEBUTTONUP;
+-        return click && igGetIO_ContextPtr(SIM_GUI_ig_context)->WantCaptureMouse;
++        return false; // Hidden dashboard must not consume game input.
+     }
+     if (s_showWindowPad && GUI_PadProcessEvent(aEvent)) {
+         return true;
