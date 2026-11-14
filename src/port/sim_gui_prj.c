@@ -175,7 +175,13 @@ void SIM_GUI_Prj_Toolbar(int canImport)
     ImGuiIO *io = igGetIO_ContextPtr(igGetCurrentContext());
     const float width = io->DisplaySize.x;
     const float height = io->DisplaySize.y;
-    const bool compact = width < 610.0f;
+    // Reserve distinct regions for navigation and page content. Smaller DS
+    // viewports show tabs above the content instead of overlapping a sidebar.
+    const bool sideNav = width >= 520.0f;
+    const bool tabRow = !sideNav && width >= 380.0f;
+    const float navY = tabRow || sideNav ? 86.0f : 116.0f;
+    const float pageX = sideNav ? 215.0f : 20.0f;
+    const float pageY = sideNav ? navY : (tabRow ? navY + 56.0f : navY + 160.0f);
     ImVec2 origin = { 0, 0 };
     ImVec2 size = { width, height };
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration
@@ -192,31 +198,45 @@ void SIM_GUI_Prj_Toolbar(int canImport)
     igPushStyleColor_Vec4(ImGuiCol_ButtonActive, (ImVec4){ 0.13f, 0.43f, 0.60f, 1.0f });
 
     if (igBegin("Lake-Trio##dashboard", NULL, flags)) {
-        igTextUnformatted("LAKE-TRIO", NULL);
-        igSameLine(0.0f, 24.0f);
-        igTextUnformatted("Application menu", NULL);
-        igSameLine(0.0f, 24.0f);
+        igTextUnformatted("Lake Trio", NULL);
+        // Keep the resume button on its own row on very small windows.
+        if (!sideNav && !tabRow) {
+            igSpacing();
+        } else {
+            igSameLine(0.0f, 20.0f);
+        }
         if (igButton("Resume [F1]", (ImVec2){ 125.0f, 32.0f })) s_menuOpen = false;
         igSeparator();
 
-        const float navY = 80.0f;
-        const float contentX = compact ? 20.0f : 220.0f;
-        const float contentY = compact ? 142.0f : 80.0f;
         const char *labels[] = { "Game", "Display", "Controls" };
+        const float rowWidth = (width - 56.0f) / 3.0f;
         for (int i = 0; i < 3; ++i) {
-            ImVec2 pos = compact ? (ImVec2){ 20.0f + i * 120.0f, navY }
-                                 : (ImVec2){ 20.0f, navY + i * 54.0f };
-            igSetCursorPos(pos);
-            if (i == s_menuPage) {
+            ImVec2 navPos;
+            ImVec2 navSize;
+            if (sideNav) {
+                navPos = (ImVec2){ 20.0f, navY + i * 54.0f };
+                navSize = (ImVec2){ 170.0f, 42.0f };
+            } else if (tabRow) {
+                navPos = (ImVec2){ 20.0f + i * (rowWidth + 8.0f), navY };
+                navSize = (ImVec2){ rowWidth, 38.0f };
+            } else {
+                navPos = (ImVec2){ 20.0f, navY + i * 48.0f };
+                navSize = (ImVec2){ width - 40.0f, 38.0f };
+            }
+            igSetCursorPos(navPos);
+
+            // Balance each style push against the state *before* the click.
+            // The click may change s_menuPage during igButton().
+            const bool wasSelected = i == s_menuPage;
+            if (wasSelected) {
                 igPushStyleColor_Vec4(ImGuiCol_Button, (ImVec4){ 0.20f, 0.37f, 0.55f, 1.0f });
             }
-            if (igButton(labels[i], compact ? (ImVec2){ 110.0f, 38.0f } : (ImVec2){ 170.0f, 42.0f })) {
-                s_menuPage = i;
-            }
-            if (i == s_menuPage) igPopStyleColor(1);
+            const bool clicked = igButton(labels[i], navSize);
+            if (wasSelected) igPopStyleColor(1);
+            if (clicked) s_menuPage = i;
         }
 
-        igSetCursorPos((ImVec2){ contentX, contentY });
+        igSetCursorPos((ImVec2){ pageX, pageY });
         switch (s_menuPage) {
         case 0:
             igTextUnformatted("Game", NULL);
@@ -245,15 +265,14 @@ void SIM_GUI_Prj_Toolbar(int canImport)
             DashboardShowBinding("L", pad->lKey, pad->lJoyKey);
             DashboardShowBinding("R", pad->rKey, pad->rJoyKey);
             igSpacing();
-            if (igButton("Configure controls", (ImVec2){ 210.0f, 42.0f })) {
+            // A unique ImGui ID prevents collision with the Controls navigation tab.
+            if (igButton("Controls##configure_dialog", (ImVec2){ 190.0f, 42.0f })) {
                 PlatformMenu_RequestAction(LAKE_TRIO_MENU_CONFIGURE_CONTROLS);
                 s_menuOpen = false;
             }
             break;
         }
         }
-        igSetCursorPos((ImVec2){ 20.0f, height > 64.0f ? height - 56.0f : 0.0f });
-        igTextUnformatted("F1 or L3 + R3 to close  |  Native File/Input menus remain available", NULL);
     }
     igEnd();
     igPopStyleColor(4);
