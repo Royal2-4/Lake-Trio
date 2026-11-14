@@ -11,6 +11,10 @@
 
 #include "port/debug_field.h"
 
+// The existing libntr input editor, made embeddable by our panel patch.
+extern void GUI_PadDrawBindings(void);
+extern void GUI_PadCancelCapture(void);
+
 static ImVec2 s_btnSize = {100, 20};
 
 static bool s_createMonOpen;
@@ -60,7 +64,10 @@ int SIM_GUI_Prj_OverlayHandleEvent(const SDL_Event *event)
     if (!DashboardEnabled()) return 0;
     if (event->type == SDL_KEYDOWN || event->type == SDL_KEYUP) {
         if (event->key.keysym.sym == SDLK_F1) {
-            if (event->type == SDL_KEYDOWN && !event->key.repeat) s_menuOpen = !s_menuOpen;
+            if (event->type == SDL_KEYDOWN && !event->key.repeat) {
+                s_menuOpen = !s_menuOpen;
+                if (!s_menuOpen) GUI_PadCancelCapture();
+            }
             return 1;
         }
     }
@@ -87,6 +94,7 @@ int SIM_GUI_Prj_OverlayHandleEvent(const SDL_Event *event)
         if (s_l3Held && s_r3Held && !s_comboLatched) {
             s_comboLatched = true;
             s_menuOpen = !s_menuOpen;
+            if (!s_menuOpen) GUI_PadCancelCapture();
             return 1;
         }
     }
@@ -95,13 +103,6 @@ int SIM_GUI_Prj_OverlayHandleEvent(const SDL_Event *event)
         s_l3Held = s_r3Held = s_comboLatched = false;
     }
     return 0;
-}
-
-static void DashboardShowBinding(const char *label, int keyboard, int joy)
-{
-    const char *key = keyboard == SDLK_UNKNOWN ? "Unbound" : SDL_GetKeyName(keyboard);
-    if (joy >= 0 && joy < 256) igText("%-12s  Keyboard: %-12s  Controller: %d", label, key, joy);
-    else igText("%-12s  Keyboard: %-12s  Controller: Unbound", label, key);
 }
 
 static void DashboardDisplaySettings(void)
@@ -175,13 +176,20 @@ void SIM_GUI_Prj_Toolbar(int canImport)
     ImGuiIO *io = igGetIO_ContextPtr(igGetCurrentContext());
     const float width = io->DisplaySize.x;
     const float height = io->DisplaySize.y;
-    // Reserve distinct regions for navigation and page content. Smaller DS
-    // viewports show tabs above the content instead of overlapping a sidebar.
-    const bool sideNav = width >= 520.0f;
+    // Independent child regions reset ImGui's own layout cursor for each
+    // column. Setting the root cursor once isn't enough: widgets like
+    // Separator() can reset its X back to the root window's left margin.
+    const bool sideNav = width >= 540.0f;
     const bool tabRow = !sideNav && width >= 380.0f;
-    const float navY = tabRow || sideNav ? 86.0f : 116.0f;
-    const float pageX = sideNav ? 215.0f : 20.0f;
-    const float pageY = sideNav ? navY : (tabRow ? navY + 56.0f : navY + 160.0f);
+    const float outerMargin = 12.0f;
+    const float gutter = 12.0f;
+    const float navWidth = 180.0f;
+    const float navTop = 76.0f;
+    const float navHeight = sideNav ? height - navTop - outerMargin : (tabRow ? 58.0f : 158.0f);
+    const float pageX = sideNav ? outerMargin + navWidth + gutter : outerMargin;
+    const float pageY = sideNav ? navTop : navTop + navHeight + gutter;
+    const float pageWidth = width - pageX - outerMargin;
+    const float pageHeight = height - pageY - outerMargin;
     ImVec2 origin = { 0, 0 };
     ImVec2 size = { width, height };
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration
@@ -205,73 +213,60 @@ void SIM_GUI_Prj_Toolbar(int canImport)
         } else {
             igSameLine(0.0f, 20.0f);
         }
-        if (igButton("Resume [F1]", (ImVec2){ 125.0f, 32.0f })) s_menuOpen = false;
+        if (igButton("Resume [F1]", (ImVec2){ 125.0f, 32.0f })) {
+            s_menuOpen = false;
+            GUI_PadCancelCapture();
+        }
         igSeparator();
 
         const char *labels[] = { "Game", "Display", "Controls" };
-        const float rowWidth = (width - 56.0f) / 3.0f;
-        for (int i = 0; i < 3; ++i) {
-            ImVec2 navPos;
-            ImVec2 navSize;
-            if (sideNav) {
-                navPos = (ImVec2){ 20.0f, navY + i * 54.0f };
-                navSize = (ImVec2){ 170.0f, 42.0f };
-            } else if (tabRow) {
-                navPos = (ImVec2){ 20.0f + i * (rowWidth + 8.0f), navY };
-                navSize = (ImVec2){ rowWidth, 38.0f };
-            } else {
-                navPos = (ImVec2){ 20.0f, navY + i * 48.0f };
-                navSize = (ImVec2){ width - 40.0f, 38.0f };
+        igSetCursorPos((ImVec2){ outerMargin, navTop });
+        if (igBeginChild_Str("##dashboard_nav", (ImVec2){ sideNav ? navWidth : width - outerMargin * 2.0f, navHeight }, 1, 0)) {
+            const float cellWidth = sideNav ? navWidth - 16.0f
+                : tabRow ? (width - outerMargin * 2.0f - 32.0f - 16.0f) / 3.0f
+                : width - outerMargin * 2.0f - 16.0f;
+            for (int i = 0; i < 3; ++i) {
+                if (i > 0 && tabRow) igSameLine(0.0f, 8.0f);
+                const bool selected = i == s_menuPage;
+                if (selected) {
+                    igPushStyleColor_Vec4(ImGuiCol_Button, (ImVec4){ 0.20f, 0.37f, 0.55f, 1.0f });
+                }
+                const bool clicked = igButton(labels[i], (ImVec2){ cellWidth, 38.0f });
+                if (selected) igPopStyleColor(1);
+                if (clicked) {
+                    if (s_menuPage == 2 && i != 2) GUI_PadCancelCapture();
+                    s_menuPage = i;
+                }
             }
-            igSetCursorPos(navPos);
-
-            // Balance each style push against the state *before* the click.
-            // The click may change s_menuPage during igButton().
-            const bool wasSelected = i == s_menuPage;
-            if (wasSelected) {
-                igPushStyleColor_Vec4(ImGuiCol_Button, (ImVec4){ 0.20f, 0.37f, 0.55f, 1.0f });
-            }
-            const bool clicked = igButton(labels[i], navSize);
-            if (wasSelected) igPopStyleColor(1);
-            if (clicked) s_menuPage = i;
         }
+        igEndChild();
 
-        igSetCursorPos((ImVec2){ pageX, pageY });
-        switch (s_menuPage) {
-        case 0:
-            igTextUnformatted("Game", NULL);
-            igSeparator();
-            igTextWrapped("Import the ROM data needed by the existing game installation.");
-            if (igButton("Import", (ImVec2){ 190.0f, 42.0f }) && canImport) {
-                PlatformMenu_RequestAction(LAKE_TRIO_MENU_IMPORT_ROM);
-                s_menuOpen = false;
+        if (pageWidth > 32.0f && pageHeight > 32.0f) {
+            igSetCursorPos((ImVec2){ pageX, pageY });
+            if (igBeginChild_Str("##dashboard_page", (ImVec2){ pageWidth, pageHeight }, 1, 0)) {
+                switch (s_menuPage) {
+                case 0:
+                    igTextUnformatted("Game", NULL);
+                    igSeparator();
+                    igTextWrapped("Import the ROM data needed by the existing game installation.");
+                    if (igButton("Import", (ImVec2){ 170.0f, 38.0f }) && canImport) {
+                        PlatformMenu_RequestAction(LAKE_TRIO_MENU_IMPORT_ROM);
+                        s_menuOpen = false;
+                    }
+                    if (!canImport) igTextUnformatted("Import is currently unavailable.", NULL);
+                    break;
+                case 1:
+                    DashboardDisplaySettings();
+                    break;
+                case 2:
+                    igTextUnformatted("Controls", NULL);
+                    igSeparator();
+                    igTextWrapped("Select a Keyboard or Controller binding below, then press the new input. Escape clears a binding.");
+                    GUI_PadDrawBindings();
+                    break;
+                }
             }
-            if (!canImport) igTextUnformatted("Import is currently unavailable.", NULL);
-            break;
-        case 1:
-            DashboardDisplaySettings();
-            break;
-        case 2: {
-            const SIM_config_pad_settings_type *pad = &SIM_GetConfigPtr()->padSettings;
-            igTextUnformatted("Controls", NULL);
-            igSeparator();
-            igTextUnformatted("Current bindings (game.ini)", NULL);
-            DashboardShowBinding("A", pad->aKey, pad->aJoyKey);
-            DashboardShowBinding("B", pad->bKey, pad->bJoyKey);
-            DashboardShowBinding("X", pad->xKey, pad->xJoyKey);
-            DashboardShowBinding("Y", pad->yKey, pad->yJoyKey);
-            DashboardShowBinding("Start", pad->startKey, pad->startJoyKey);
-            DashboardShowBinding("Select", pad->selectKey, pad->selectJoyKey);
-            DashboardShowBinding("L", pad->lKey, pad->lJoyKey);
-            DashboardShowBinding("R", pad->rKey, pad->rJoyKey);
-            igSpacing();
-            // A unique ImGui ID prevents collision with the Controls navigation tab.
-            if (igButton("Controls##configure_dialog", (ImVec2){ 190.0f, 42.0f })) {
-                PlatformMenu_RequestAction(LAKE_TRIO_MENU_CONFIGURE_CONTROLS);
-                s_menuOpen = false;
-            }
-            break;
-        }
+            igEndChild();
         }
     }
     igEnd();

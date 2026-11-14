@@ -1,0 +1,44 @@
+diff --git a/libraries/sim/src/gui/gui.c b/libraries/sim/src/gui/gui.c
+index a8b3ad1..7a32c7b 100644
+--- a/libraries/sim/src/gui/gui.c
++++ b/libraries/sim/src/gui/gui.c
+@@ -2,3 +2,5 @@ bool SIM_GUI_ProcessEvent(SDL_Event *aEvent)
+ {
+-    if ((SIM_GUI_State || IsMenuBarVisible()) && s_showWindowPad && GUI_PadProcessEvent(aEvent)) return true;
++    // Honor input capture from both the native Input dialog and the
++    // dashboard's embedded Controls editor before consuming overlay keys.
++    if (GUI_PadProcessEvent(aEvent)) return true;
+     if (SIM_GUI_Prj_OverlayHandleEvent && SIM_GUI_Prj_OverlayHandleEvent(aEvent)) return true;
+diff --git a/libraries/sim/src/gui/gui_pad.c b/libraries/sim/src/gui/gui_pad.c
+index 9ea7d6a..87936f3 100644
+--- a/libraries/sim/src/gui/gui_pad.c
++++ b/libraries/sim/src/gui/gui_pad.c
+@@ -162,9 +162,7 @@ static void InputBindingButton(const char *label, int *binding, bool joystick, b
+-void GUI_AppPadMain(bool *p_open)
++// Draw the existing interactive keyboard/controller binding tables inside
++// whichever ImGui window is current. Both the native Input dialog and the
++// Lake-Trio dashboard call this shared editor; input capture and persistence
++// stay in one place.
++void GUI_PadDrawBindings(void)
+ {
+-    float scale = igGetFontSize() / 13.0f;
+-    ImVec2 display = igGetIO_Nil()->DisplaySize;
+-    ImVec2 size = { fminf(600 * scale, display.x - 16 * scale),
+-        fminf(590 * scale, display.y - igGetFrameHeight() - 16 * scale) };
+-    igSetNextWindowSize(size, ImGuiCond_Appearing);
+-    if (igBegin("Input", p_open, 0)) {
+         ImVec2 tableSize = { 0, 0 };
+@@ -318,2 +316,13 @@ void GUI_AppPadMain(bool *p_open)
+         }
++}
++
++void GUI_AppPadMain(bool *p_open)
++{
++    float scale = igGetFontSize() / 13.0f;
++    ImVec2 display = igGetIO_Nil()->DisplaySize;
++    ImVec2 size = { fminf(600 * scale, display.x - 16 * scale),
++        fminf(590 * scale, display.y - igGetFrameHeight() - 16 * scale) };
++    igSetNextWindowSize(size, ImGuiCond_Appearing);
++    if (igBegin("Input", p_open, 0)) {
++        GUI_PadDrawBindings();
+     }
