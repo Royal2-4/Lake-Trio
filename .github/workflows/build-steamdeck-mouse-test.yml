@@ -32,6 +32,17 @@ jobs:
         with:
           persist-credentials: false
 
+      # checkout registers safety for its own execution, but the Arch
+      # container runs later Git commands with a different HOME/user context.
+      # Trust only this CI checkout (not every repository on the runner).
+      - name: Trust checked-out repository inside Arch Linux container
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          echo "Git ownership preflight for: $GITHUB_WORKSPACE"
+          git -C "$GITHUB_WORKSPACE" log -1 --format='%h %s'
+
       - name: Show toolchain and plugin availability
         shell: bash
         run: |
