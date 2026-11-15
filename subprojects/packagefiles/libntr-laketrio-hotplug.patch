@@ -1,7 +1,7 @@
 diff --git a/libraries/sim/src/gui/gui.c b/libraries/sim/src/gui/gui.c
 --- a/libraries/sim/src/gui/gui.c
 +++ b/libraries/sim/src/gui/gui.c
-@@ -1,5 +1,14 @@
+@@ -288,5 +288,14 @@
  bool SIM_GUI_ProcessEvent(SDL_Event *aEvent)
  {
 +    // ImGui's SDL2 backend tracks an opened controller handle. It must see
