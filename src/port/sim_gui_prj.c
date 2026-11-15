@@ -18,6 +18,13 @@ extern void GUI_PadDrawBindings(void);
 extern void GUI_PadCancelCapture(void);
 extern bool GUI_PadBlocksNavigation(void);
 
+// C-linkage controls supplied by our pinned libntr audio dependency patch.
+extern const char *LakeTrio_Audio_GetOutputDevice(void);
+extern int LakeTrio_Audio_SelectOutputDevice(const char *name);
+extern int LakeTrio_Audio_GetVolume(void);
+extern void LakeTrio_Audio_SetVolume(int percent);
+extern int LakeTrio_Audio_IsPlaying(void);
+
 static ImVec2 s_btnSize = {100, 20};
 
 static bool s_createMonOpen;
@@ -40,7 +47,8 @@ void SIM_GUI_Prj_main(bool * p_open) {
 // The existing native File/Input menus are retained until the dashboard has
 // passed Windows and Steam Deck regression testing.
 static bool s_menuOpen;
-static int s_menuPage; // 0 Game, 1 Display, 2 Controls
+static int s_menuPage; // 0 Game, 1 Display, 2 Controls, 3 Audio
+static char s_audioError[256];
 static bool s_saveConfigNextFrame;
 static SDL_JoystickID s_shortcutDevice = -1;
 static bool s_l3Held;
@@ -510,6 +518,66 @@ static void DashboardDisplaySettings(void)
         igTextWrapped("Unlimited FPS overrides VSync in the simulator.");
 }
 
+// Audio routing is owned by the simulator's SDL callback, not the OS mixer.
+// SDL2 can enumerate only what the active audio driver exposes. Names are
+// deduplicated because SDL_OpenAudioDevice selects devices by name.
+static void DashboardAudioSettings(void)
+{
+    enum { MAX_OUTPUTS = 32 };
+    const char *devices[MAX_OUTPUTS + 1] = { "System Default" };
+    int count = 1;
+    const int available = SDL_GetNumAudioDevices(0);
+    if (available > 0) {
+        for (int i = 0; i < available && count <= MAX_OUTPUTS; ++i) {
+            const char *name = SDL_GetAudioDeviceName(i, 0);
+            if (!name || !name[0]) continue;
+            bool duplicate = false;
+            for (int j = 1; j < count; ++j) {
+                if (SDL_strcmp(devices[j], name) == 0) { duplicate = true; break; }
+            }
+            if (!duplicate) devices[count++] = name;
+        }
+    }
+
+    igTextUnformatted("Audio", NULL);
+    igSeparator();
+    const char *active = LakeTrio_Audio_GetOutputDevice();
+    int selected = 0;
+    bool found = !active || !active[0];
+    if (!found) {
+        selected = -1;
+        for (int i = 1; i < count; ++i) {
+            if (SDL_strcmp(active, devices[i]) == 0) {
+                selected = i;
+                found = true;
+                break;
+            }
+        }
+    }
+    DashboardFocusPageItem();
+    if (igCombo_Str_arr("Output device", &selected, devices, count, count < 7 ? count : 7)) {
+        const char *requested = selected == 0 ? NULL : devices[selected];
+        if (LakeTrio_Audio_SelectOutputDevice(requested)) {
+            s_audioError[0] = '\0';
+        } else {
+            snprintf(s_audioError, sizeof(s_audioError), "Unable to switch output: %s", SDL_GetError());
+        }
+    }
+    if (available <= 0)
+        igTextWrapped("The current SDL audio driver does not enumerate individual output devices. System Default remains available.");
+    if (!found)
+        igTextWrapped("The previously chosen device is no longer listed. Select another output if needed.");
+    if (s_audioError[0]) igTextWrapped("%s", s_audioError);
+    if (!LakeTrio_Audio_IsPlaying())
+        igTextWrapped("Audio is not currently playing. Choose an available output to retry.");
+
+    igSpacing();
+    igSeparator();
+    int volume = LakeTrio_Audio_GetVolume();
+    if (igSliderInt("Master volume", &volume, 0, 200, "%d%%", ImGuiSliderFlags_AlwaysClamp))
+        LakeTrio_Audio_SetVolume(volume);
+    igTextWrapped("100%% is normal volume. Values above 100%% amplify audio in software and can cause distortion or clipping. This does not change system volume.");
+}
 // Lake-Trio's dashboard-only palette. Exact requested colors:
 // background #212830, accent #F29EC4. The render frame itself remains opaque;
 // these style changes are popped before any other simulator UI is drawn.
@@ -588,7 +656,7 @@ void SIM_GUI_Prj_Toolbar(int canImport)
     // Keep both header buttons clear of the navigation region on narrow views.
     const bool compactHeader = width < 390.0f;
     const float navTop = compactHeader ? 116.0f : 76.0f;
-    const float navHeight = sideNav ? height - navTop - outerMargin : (tabRow ? 58.0f : 158.0f);
+    const float navHeight = sideNav ? height - navTop - outerMargin : (tabRow ? 58.0f : 206.0f);
     const float pageX = sideNav ? outerMargin + navWidth + gutter : outerMargin;
     const float pageY = sideNav ? navTop : navTop + navHeight + gutter;
     const float pageWidth = width - pageX - outerMargin;
@@ -652,13 +720,13 @@ void SIM_GUI_Prj_Toolbar(int canImport)
             igEndPopup();
         }
 
-        const char *labels[] = { "Game", "Display", "Controls" };
+        const char *labels[] = { "Game", "Display", "Controls", "Audio" };
         igSetCursorPos((ImVec2){ outerMargin, navTop });
         if (igBeginChild_Str("##dashboard_nav", (ImVec2){ sideNav ? navWidth : width - outerMargin * 2.0f, navHeight }, 1, 0)) {
             const float cellWidth = sideNav ? navWidth - 16.0f
-                : tabRow ? (width - outerMargin * 2.0f - 32.0f - 16.0f) / 3.0f
+                : tabRow ? (width - outerMargin * 2.0f - 32.0f - 16.0f) / 4.0f
                 : width - outerMargin * 2.0f - 16.0f;
-            for (int i = 0; i < 3; ++i) {
+            for (int i = 0; i < 4; ++i) {
                 if (i > 0 && tabRow) igSameLine(0.0f, 8.0f);
                 const bool selected = i == s_menuPage;
                 if (selected) {
@@ -702,6 +770,9 @@ void SIM_GUI_Prj_Toolbar(int canImport)
                     igTextWrapped("Select a Keyboard or Controller binding below, then press the new input. Escape clears a binding.");
                     DashboardFocusPageItem();
                     GUI_PadDrawBindings();
+                    break;
+                case 3:
+                    DashboardAudioSettings();
                     break;
                 }
             }
