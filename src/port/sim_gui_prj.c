@@ -464,7 +464,19 @@ static void DashboardDisplaySettings(void)
 {
     SIM_config_type *config = SIM_GetConfigPtr();
     const char *fpsModes[] = { "30 FPS", "60 FPS", "Auto (display refresh)", "Unlimited" };
-    const char *renderModes[] = { "1x", "2x", "3x", "4x" };
+    const char *renderModes[] = {
+        "1x (256x192)",
+        "2x (512x384)",
+        "3x (768x576)",
+        "4x (1024x768)",
+        "5x (1280x960)",
+        "6x (1536x1152)",
+        "7x (1792x1344)",
+        "8x (2048x1536)",
+        "9x (2304x1728)",
+        "10x (2560x1920)",
+    };
+    const int renderModeCount = (int)(sizeof(renderModes) / sizeof(renderModes[0]));
     const char *layoutNames[] = { "Vertical", "Horizontal", "Large Screen" };
 
     igTextUnformatted("Display & Performance", NULL);
@@ -572,8 +584,8 @@ static void DashboardDisplaySettings(void)
     igSpacing();
     igSeparator();
     int scale = (int)SIM_GetInternalResolutionScale() - 1;
-    if (scale >= 0 && scale < 4
-        && igCombo_Str_arr("Internal 3D resolution", &scale, renderModes, 4, 4)) {
+    if (scale >= 0 && scale < renderModeCount
+        && igCombo_Str_arr("Internal 3D resolution", &scale, renderModes, renderModeCount, renderModeCount)) {
         SIM_RequestInternalResolutionScale((u32)scale + 1u);
         s_saveConfigNextFrame = true;
     }
