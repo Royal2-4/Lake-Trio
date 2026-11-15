@@ -13,12 +13,7 @@ diff --git a/libraries/sim/cimgui/imgui/backends/imgui_impl_sdl2.cpp b/libraries
 +    bd->GamepadMode = ImGui_ImplSDL2_GamepadMode_AutoAll;
 +    bd->LastJoystickCount = -1;
      bd->WantUpdateGamepadsList = true;
-@@ -774,15 +778,32 @@
- }
- static void ImGui_ImplSDL2_UpdateGamepads()
- {
-     ImGui_ImplSDL2_Data* bd = ImGui_ImplSDL2_GetBackendData();
-     ImGuiIO& io = ImGui::GetIO();
+@@ -779,6 +783,23 @@
 +    // Lake-Trio hot-plug fallback: controller events may be missed while the
 +    // dashboard is hidden. Poll for a changed device count or stale handles
 +    // before reading navigation buttons. An unplug/replug may keep the same
@@ -42,10 +37,6 @@ diff --git a/libraries/sim/cimgui/imgui/backends/imgui_impl_sdl2.cpp b/libraries
          int joystick_count = SDL_NumJoysticks();
 +        bd->LastJoystickCount = joystick_count;
          for (int n = 0; n < joystick_count; n++)
-             if (SDL_IsGameController(n))
-                 if (SDL_GameController* gamepad = SDL_GameControllerOpen(n))
-                 {
-                     bd->Gamepads.push_back(gamepad);
 diff --git a/libraries/sim/src/gui/gui.c b/libraries/sim/src/gui/gui.c
 --- a/libraries/sim/src/gui/gui.c
 +++ b/libraries/sim/src/gui/gui.c
