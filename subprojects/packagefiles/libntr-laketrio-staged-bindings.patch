@@ -1,0 +1,119 @@
+diff --git a/libraries/sim/src/gui/gui_pad.c b/libraries/sim/src/gui/gui_pad.c
+--- a/libraries/sim/src/gui/gui_pad.c
++++ b/libraries/sim/src/gui/gui_pad.c
+@@ -8,8 +8,103 @@
+ #include "simulator/gui.h"
+ #include "simulator/config/sim_config.h"
+ 
+ extern SIM_config_type s_SIM_config;
++// Dashboard editing uses an isolated configuration copy. Keeping the live
++// bindings untouched ensures navigation remains usable through a partial A/B
++// swap. Native (legacy) Input editing is unchanged when no draft is active.
++static SIM_config_type s_lakePadDraft;
++static SIM_config_type *const s_lakeLiveConfig = &s_SIM_config;
++static bool s_lakeDraftOpen;
++static bool s_lakeDraftDirty;
++
++static SIM_config_type *LakeTrio_PadEditorConfig(void)
++{
++    return s_lakeDraftOpen ? &s_lakePadDraft : s_lakeLiveConfig;
++}
++
++void LakeTrio_PadDraftBegin(void)
++{
++    GUI_PadCancelCapture();
++    s_lakePadDraft = *s_lakeLiveConfig;
++    s_lakeDraftOpen = true;
++    s_lakeDraftDirty = false;
++}
++
++void LakeTrio_PadDraftDiscard(void)
++{
++    GUI_PadCancelCapture();
++    s_lakeDraftOpen = false;
++    s_lakeDraftDirty = false;
++}
++
++bool LakeTrio_PadDraftDirty(void)
++{
++    return s_lakeDraftOpen && s_lakeDraftDirty;
++}
++
++bool LakeTrio_PadDraftCanApply(void)
++{
++    if (!s_lakeDraftOpen) return false;
++    const int a = s_lakePadDraft.padSettings.aJoyKey;
++    const int b = s_lakePadDraft.padSettings.bJoyKey;
++    // Prevent stranding menu navigation with an incomplete face-button swap.
++    return a >= 0 && a < 256 && b >= 0 && b < 256 && a != b;
++}
++
++bool LakeTrio_PadDraftApply(void)
++{
++    if (!LakeTrio_PadDraftCanApply()) return false;
++    GUI_PadCancelCapture();
++    // Only copy input settings. Never overwrite unrelated live video, audio,
++    // game or window settings with the snapshot taken on entering Controls.
++    s_lakeLiveConfig->padSettings = s_lakePadDraft.padSettings;
++#define LAKE_COPY_INPUT(field) s_lakeLiveConfig->field = s_lakePadDraft.field
++    LAKE_COPY_INPUT(guiJoyKey);
++    LAKE_COPY_INPUT(undergroundRadarKey);
++    LAKE_COPY_INPUT(undergroundRadarJoyKey);
++    LAKE_COPY_INPUT(swapScreensKey);
++    LAKE_COPY_INPUT(swapScreensJoyKey);
++    LAKE_COPY_INPUT(mapKey);
++    LAKE_COPY_INPUT(mapJoyKey);
++    LAKE_COPY_INPUT(saveKey);
++    LAKE_COPY_INPUT(saveJoyKey);
++    LAKE_COPY_INPUT(resetKey);
++    LAKE_COPY_INPUT(resetJoyKey);
++    LAKE_COPY_INPUT(bicycleKey);
++    LAKE_COPY_INPUT(bicycleJoyKey);
++    LAKE_COPY_INPUT(fishingKey);
++    LAKE_COPY_INPUT(fishingJoyKey);
++    LAKE_COPY_INPUT(explorerKitKey);
++    LAKE_COPY_INPUT(explorerKitJoyKey);
++    LAKE_COPY_INPUT(defogKey);
++    LAKE_COPY_INPUT(defogJoyKey);
++    LAKE_COPY_INPUT(flyKey);
++    LAKE_COPY_INPUT(flyJoyKey);
++    LAKE_COPY_INPUT(teleportKey);
++    LAKE_COPY_INPUT(teleportJoyKey);
++    LAKE_COPY_INPUT(surfKey);
++    LAKE_COPY_INPUT(surfJoyKey);
++    LAKE_COPY_INPUT(crtToggleKey);
++    LAKE_COPY_INPUT(crtToggleJoyKey);
++    LAKE_COPY_INPUT(cameraDistanceIncreaseKey);
++    LAKE_COPY_INPUT(cameraDistanceIncreaseJoyKey);
++    LAKE_COPY_INPUT(cameraDistanceDecreaseKey);
++    LAKE_COPY_INPUT(cameraDistanceDecreaseJoyKey);
++#undef LAKE_COPY_INPUT
++    for (int i = 0; i < 25; ++i) {
++        s_lakeLiveConfig->poketchKeys[i] = s_lakePadDraft.poketchKeys[i];
++        s_lakeLiveConfig->poketchJoyKeys[i] = s_lakePadDraft.poketchJoyKeys[i];
++    }
++    SIM_Config_SaveGameConfigFile(s_lakeLiveConfig);
++    s_lakePadDraft = *s_lakeLiveConfig;
++    s_lakeDraftDirty = false;
++    return true;
++}
++
++// Redirect only this input-editor compilation unit's binding references. The
++// rest of the simulator, including ImGui's nav helper, reads the live config.
++#define s_SIM_config (*LakeTrio_PadEditorConfig())
+ extern const char *PoketchKeyboard_GetPageName(int page) __attribute__((weak));
+ 
+ static int *sCaptureTarget;
+ static bool sCaptureJoystick;
+@@ -141,9 +236,10 @@
+     *sCaptureTarget = value;
+     GUI_PadCancelCapture(); // Finished consuming the new binding.
+     sCaptureFinishedAt = SDL_GetTicks();
+     sCaptureFinished = true;
+-    SIM_Config_SaveGameConfigFile(&s_SIM_config);
++    if (s_lakeDraftOpen) s_lakeDraftDirty = true;
++    else SIM_Config_SaveGameConfigFile(s_lakeLiveConfig);
+     return true;
+ }
+ 
+ static void InputBindingButton(const char *label, int *binding, bool joystick, bool trigger)

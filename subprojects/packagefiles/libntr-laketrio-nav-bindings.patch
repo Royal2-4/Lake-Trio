@@ -1,0 +1,64 @@
+diff --git a/libraries/sim/cimgui/imgui/backends/imgui_impl_sdl2.cpp b/libraries/sim/cimgui/imgui/backends/imgui_impl_sdl2.cpp
+--- a/libraries/sim/cimgui/imgui/backends/imgui_impl_sdl2.cpp
++++ b/libraries/sim/cimgui/imgui/backends/imgui_impl_sdl2.cpp
+@@ -756,3 +756,47 @@
++// Lake-Trio keeps gameplay button assignments in game.ini as *raw* SDL
++// joystick button indices. ImGui normally assumes SDL_CONTROLLER_BUTTON_A/B,
++// which ignores a user-selected Nintendo-style face-button layout.
++extern "C" void LakeTrio_GUI_GetNavButtons(int *confirm, int *back);
++static void ImGui_ImplSDL2_LakeTrio_UpdateBoundFaceButtons(ImGui_ImplSDL2_Data* bd, ImGuiIO& io)
++{
++    int boundA = -1, boundB = -1;
++    LakeTrio_GUI_GetNavButtons(&boundA, &boundB);
++    bool confirm = false, back = false;
++    for (SDL_GameController* controller : bd->Gamepads)
++    {
++        SDL_Joystick* joystick = SDL_GameControllerGetJoystick(controller);
++        const int buttonCount = joystick ? SDL_JoystickNumButtons(joystick) : 0;
++        const SDL_GameControllerButtonBind defaultA =
++            SDL_GameControllerGetBindForButton(controller, SDL_CONTROLLER_BUTTON_A);
++        const SDL_GameControllerButtonBind defaultB =
++            SDL_GameControllerGetBindForButton(controller, SDL_CONTROLLER_BUTTON_B);
++        const int rawA = defaultA.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON ? defaultA.value.button : -1;
++        const int rawB = defaultB.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON ? defaultB.value.button : -1;
++        const bool assignedA = boundA >= 0 && boundA < buttonCount;
++        const bool assignedB = boundB >= 0 && boundB < buttonCount;
++        int confirmButton = assignedA ? boundA : rawA;
++        int backButton = assignedB ? boundB : rawB;
++        // The binding editor clears an existing assignment before a swap is
++        // complete. Never route the claimed physical button to both actions.
++        if (confirmButton >= 0 && confirmButton == backButton)
++        {
++            if (assignedA && !assignedB)
++                backButton = rawA != confirmButton ? rawA : -1;
++            else if (assignedB && !assignedA)
++                confirmButton = rawB != backButton ? rawB : -1;
++            else
++                backButton = -1;
++        }
++        confirm |= confirmButton >= 0 && confirmButton < buttonCount
++            ? SDL_JoystickGetButton(joystick, confirmButton) != 0
++            : (!assignedA && !assignedB && rawA < 0 && SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_A) != 0);
++        back |= backButton >= 0 && backButton < buttonCount
++            ? SDL_JoystickGetButton(joystick, backButton) != 0
++            : (!assignedA && !assignedB && rawB < 0 && SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_B) != 0);
++    }
++    io.AddKeyEvent(ImGuiKey_GamepadFaceDown, confirm);  // Confirm (game A)
++    io.AddKeyEvent(ImGuiKey_GamepadFaceRight, back);    // Cancel (game B)
++}
+ static void ImGui_ImplSDL2_UpdateGamepadButton(ImGui_ImplSDL2_Data* bd, ImGuiIO& io, ImGuiKey key, SDL_GameControllerButton button_no)
+ {
+     bool merged_value = false;
+@@ -802,11 +802,10 @@
+     const int thumb_dead_zone = 8000; // SDL_gamecontroller.h suggests using this value.
+     ImGui_ImplSDL2_UpdateGamepadButton(bd, io, ImGuiKey_GamepadStart,       SDL_CONTROLLER_BUTTON_START);
+     ImGui_ImplSDL2_UpdateGamepadButton(bd, io, ImGuiKey_GamepadBack,        SDL_CONTROLLER_BUTTON_BACK);
+     ImGui_ImplSDL2_UpdateGamepadButton(bd, io, ImGuiKey_GamepadFaceLeft,    SDL_CONTROLLER_BUTTON_X);              // Xbox X, PS Square
+-    ImGui_ImplSDL2_UpdateGamepadButton(bd, io, ImGuiKey_GamepadFaceRight,   SDL_CONTROLLER_BUTTON_B);              // Xbox B, PS Circle
++    ImGui_ImplSDL2_LakeTrio_UpdateBoundFaceButtons(bd, io);
+     ImGui_ImplSDL2_UpdateGamepadButton(bd, io, ImGuiKey_GamepadFaceUp,      SDL_CONTROLLER_BUTTON_Y);              // Xbox Y, PS Triangle
+-    ImGui_ImplSDL2_UpdateGamepadButton(bd, io, ImGuiKey_GamepadFaceDown,    SDL_CONTROLLER_BUTTON_A);              // Xbox A, PS Cross
+     ImGui_ImplSDL2_UpdateGamepadButton(bd, io, ImGuiKey_GamepadDpadLeft,    SDL_CONTROLLER_BUTTON_DPAD_LEFT);
+     ImGui_ImplSDL2_UpdateGamepadButton(bd, io, ImGuiKey_GamepadDpadRight,   SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
+     ImGui_ImplSDL2_UpdateGamepadButton(bd, io, ImGuiKey_GamepadDpadUp,      SDL_CONTROLLER_BUTTON_DPAD_UP);
+     ImGui_ImplSDL2_UpdateGamepadButton(bd, io, ImGuiKey_GamepadDpadDown,    SDL_CONTROLLER_BUTTON_DPAD_DOWN);

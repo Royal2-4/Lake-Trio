@@ -17,6 +17,25 @@
 extern void GUI_PadDrawBindings(void);
 extern void GUI_PadCancelCapture(void);
 extern bool GUI_PadBlocksNavigation(void);
+extern void LakeTrio_PadDraftBegin(void);
+extern void LakeTrio_PadDraftDiscard(void);
+extern bool LakeTrio_PadDraftDirty(void);
+extern bool LakeTrio_PadDraftCanApply(void);
+extern bool LakeTrio_PadDraftApply(void);
+
+// Shared with libntr's SDL2 ImGui backend. Return the same raw joystick
+// bindings used by the game, so dashboard confirm/back follows rebinding.
+void LakeTrio_GUI_GetNavButtons(int *confirm, int *back)
+{
+    const SIM_config_type *config = SIM_GetConfigPtr();
+    int a = config ? config->padSettings.aJoyKey : -1;
+    int b = config ? config->padSettings.bJoyKey : -1;
+    if (a < 0 || a > 255) a = -1;
+    if (b < 0 || b > 255) b = -1;
+    if (a >= 0 && a == b) a = b = -1;
+    if (confirm) *confirm = a;
+    if (back) *back = b;
+}
 
 // C-linkage controls supplied by our pinned libntr audio dependency patch.
 extern const char *LakeTrio_Audio_GetOutputDevice(void);
@@ -50,6 +69,9 @@ static bool s_menuOpen;
 static int s_menuPage; // 0 Game, 1 Display, 2 Controls, 3 Audio
 static char s_audioError[256];
 static bool s_saveConfigNextFrame;
+// The controller editor can leave capture active after an A/B rebind.
+// Track changes only while the Controls page is open.
+static int s_lastNavBindA = -2, s_lastNavBindB = -2;
 static SDL_JoystickID s_shortcutDevice = -1;
 static bool s_l3Held;
 static bool s_r3Held;
@@ -86,6 +108,8 @@ static void DashboardSetOpen(bool open)
 {
     s_menuOpen = open;
     if (open) {
+        if (s_menuPage == 2) LakeTrio_PadDraftBegin();
+        LakeTrio_GUI_GetNavButtons(&s_lastNavBindA, &s_lastNavBindB);
         s_inPage = false;
         s_inHeader = false;
         s_focusHeaderNextFrame = false;
@@ -93,7 +117,7 @@ static void DashboardSetOpen(bool open)
         s_focusPageNextFrame = false;
         s_leftShoulderHeld = s_rightShoulderHeld = false;
     } else {
-        GUI_PadCancelCapture();
+        LakeTrio_PadDraftDiscard();
         s_inPage = false;
         s_inHeader = false;
         s_focusHeaderNextFrame = false;
@@ -149,7 +173,9 @@ static int DashboardBackEvent(bool pressed)
 // The next selectable ImGui item in that child receives controller focus.
 static void DashboardEnterPage(int page)
 {
-    if (s_menuPage == 2 && page != 2) GUI_PadCancelCapture();
+    if (s_menuPage == 2 && page != 2) LakeTrio_PadDraftDiscard();
+    if (s_menuPage != 2 && page == 2) LakeTrio_PadDraftBegin();
+    if (page == 2) LakeTrio_GUI_GetNavButtons(&s_lastNavBindA, &s_lastNavBindB);
     s_menuPage = page;
     s_inPage = true;
     s_inHeader = false;
@@ -184,22 +210,59 @@ static int DashboardShoulderEvent(bool right, bool pressed)
     return 1;
 }
 
-// A standardized controller may also send raw joystick events. Map physical
-// B to its raw index, falling back to the existing game.ini assignment.
+// Raw joystick events must follow the game's *saved B binding*, not SDL's
+// standardized physical B button. Otherwise a Nintendo A/B swap can still
+// close the dashboard when the old physical B is pressed.
 static int DashboardRawBButton(SDL_JoystickID instance)
 {
+    int a, b;
+    LakeTrio_GUI_GetNavButtons(&a, &b);
+    if (b >= 0) return b;
+    // B is temporarily unassigned during a swap. Do not let its SDL default
+    // also act as Back when that physical button now belongs to game A.
     for (int i = 0; i < SDL_NumJoysticks(); ++i) {
         if (SDL_JoystickGetDeviceInstanceID(i) != instance) continue;
         if (!SDL_IsGameController(i)) break;
         SDL_GameController *pad = SDL_GameControllerOpen(i);
         if (!pad) break;
-        SDL_GameControllerButtonBind b = SDL_GameControllerGetBindForButton(pad, SDL_CONTROLLER_BUTTON_B);
+        const SDL_GameControllerButtonBind defaultA =
+            SDL_GameControllerGetBindForButton(pad, SDL_CONTROLLER_BUTTON_A);
+        const SDL_GameControllerButtonBind defaultB =
+            SDL_GameControllerGetBindForButton(pad, SDL_CONTROLLER_BUTTON_B);
         SDL_GameControllerClose(pad);
-        if (b.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON) return b.value.button;
+        if (defaultB.bindType != SDL_CONTROLLER_BINDTYPE_BUTTON) break;
+        const int rawB = defaultB.value.button;
+        if (rawB != a) return rawB;
+        // Use the other face button as a *temporary UI* Back binding.
+        if (defaultA.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON
+            && defaultA.value.button != a) return defaultA.value.button;
+        return -1; // Never send Confirm and Back from the same physical key.
+    }
+    return -1;
+}
+
+// SDL's normalized controller events arrive *in addition* to raw joystick
+// events. Resolve each normalized button to its raw index before consuming
+// the overlay's Back action; do not hardcode SDL_CONTROLLER_BUTTON_B.
+static bool DashboardControllerIsBack(SDL_JoystickID instance, SDL_GameControllerButton button)
+{
+    const int rawBack = DashboardRawBButton(instance);
+    for (int i = 0; i < SDL_NumJoysticks(); ++i) {
+        if (SDL_JoystickGetDeviceInstanceID(i) != instance) continue;
+        if (!SDL_IsGameController(i)) break;
+        SDL_GameController *pad = SDL_GameControllerOpen(i);
+        if (!pad) break;
+        const SDL_GameControllerButtonBind binding = SDL_GameControllerGetBindForButton(pad, button);
+        SDL_GameControllerClose(pad);
+        if (binding.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON)
+            return rawBack >= 0 && binding.value.button == rawBack;
         break;
     }
-    const int fallback = SIM_GetConfigPtr()->padSettings.bJoyKey;
-    return fallback >= 0 && fallback < 256 ? fallback : -1;
+    // An unmapped controller may use SDL B as a legacy fallback, but only if
+    // game A has not claimed a face button during the rebinding transition.
+    int a, b;
+    LakeTrio_GUI_GetNavButtons(&a, &b);
+    return rawBack < 0 && a < 0 && b < 0 && button == SDL_CONTROLLER_BUTTON_B;
 }
 
 // SDL can report a controller press as both a raw joystick event and a
@@ -345,7 +408,8 @@ int SIM_GUI_Prj_OverlayHandleEvent(const SDL_Event *event)
             SDL_CONTROLLER_BUTTON_LEFTSTICK, SDL_CONTROLLER_BUTTON_RIGHTSTICK,
             event->type == SDL_CONTROLLERBUTTONDOWN);
         if (stickToggle) return 1;
-        if (event->cbutton.button == SDL_CONTROLLER_BUTTON_B && s_menuOpen) {
+        if (s_menuOpen && DashboardControllerIsBack(event->cbutton.which,
+                (SDL_GameControllerButton)event->cbutton.button)) {
             return DashboardBackEvent(event->type == SDL_CONTROLLERBUTTONDOWN);
         }
         return 0;
@@ -767,9 +831,40 @@ void SIM_GUI_Prj_Toolbar(int canImport)
                 case 2:
                     igTextUnformatted("Controls", NULL);
                     igSeparator();
-                    igTextWrapped("Select a Keyboard or Controller binding below, then press the new input. Escape clears a binding.");
+                    igTextWrapped("Edit bindings below, then select Apply Changes. Until applied, the existing game and dashboard controls remain active. Switching categories or closing the dashboard discards unapplied edits.");
+                    if (LakeTrio_PadDraftDirty()) igTextUnformatted("Unapplied changes", NULL);
+                    if (!LakeTrio_PadDraftCanApply())
+                        igTextWrapped("Assign both Controller A and B to different face buttons before applying.");
                     DashboardFocusPageItem();
+                    if (igButton("Apply Changes", (ImVec2){ 150.0f, 32.0f })) {
+                        if (LakeTrio_PadDraftCanApply()) LakeTrio_PadDraftApply();
+                    }
+                    if (pageWidth >= 390.0f) igSameLine(0.0f, 8.0f);
+                    if (igButton("Discard Changes", (ImVec2){ 150.0f, 32.0f }))
+                        LakeTrio_PadDraftBegin();
+                    igSeparator();
                     GUI_PadDrawBindings();
+                    // Observe the editor *after* it has processed this frame's
+                    // capture. A successful rebinding can clear the old B
+                    // action while leaving the editor's capture flag set.
+                    // If the binding actually changed, finish that capture so
+                    // ImGui navigation can return on the following frame.
+                    {
+                        int boundA = -1, boundB = -1;
+                        LakeTrio_GUI_GetNavButtons(&boundA, &boundB);
+                        if (s_lastNavBindA != -2 &&
+                            (boundA != s_lastNavBindA || boundB != s_lastNavBindB)) {
+                            const bool blocked = GUI_PadBlocksNavigation();
+                            DashboardShortcutLog("nav bindings changed A=%d->%d B=%d->%d blocked=%d\n",
+                                s_lastNavBindA, boundA, s_lastNavBindB, boundB, blocked ? 1 : 0);
+                            if (blocked) {
+                                GUI_PadCancelCapture();
+                                DashboardShortcutLog("nav capture released after binding change\n");
+                            }
+                        }
+                        s_lastNavBindA = boundA;
+                        s_lastNavBindB = boundB;
+                    }
                     break;
                 case 3:
                     DashboardAudioSettings();
