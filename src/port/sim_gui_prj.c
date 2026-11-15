@@ -47,7 +47,13 @@ static bool s_l3Held;
 static bool s_r3Held;
 static bool s_comboLatched;
 static bool s_backHeld;
+// Controller navigation has two levels: category list and active page.
+// A on a category enters the page; B returns to categories, then closes.
 static bool s_focusNavOnOpen;
+static bool s_focusPageNextFrame;
+static bool s_inPage;
+static bool s_quitPromptOpen;
+static bool s_cancelQuitPrompt;
 static int s_lastWindowedMode = 2;
 
 static bool DashboardEnabled(void)
@@ -68,15 +74,32 @@ static void DashboardSetOpen(bool open)
 {
     s_menuOpen = open;
     if (open) {
+        s_inPage = false;
         s_focusNavOnOpen = true;
+        s_focusPageNextFrame = false;
     } else {
         GUI_PadCancelCapture();
+        s_inPage = false;
+        s_focusPageNextFrame = false;
         s_backHeld = false;
+        // If a quit confirmation was showing, dismiss it on reopening.
+        if (s_quitPromptOpen) s_cancelQuitPrompt = true;
     }
 }
 
-// A single B press returns to Game, then closes the dashboard. ImGui handles
-// B itself when a dropdown/popup is open, and binding capture takes priority.
+// Request navigation focus on the next selectable item in the page child.
+// Call this immediately before its first interactive control, not before
+// headings or separators, which do not participate in gamepad navigation.
+static void DashboardFocusPageItem(void)
+{
+    if (s_focusPageNextFrame) {
+        igSetKeyboardFocusHere(0);
+        s_focusPageNextFrame = false;
+    }
+}
+
+// B leaves the active page and returns focus to the category list; pressing
+// B again closes the dashboard. Drop-downs and binding capture retain priority.
 static int DashboardBackEvent(bool pressed)
 {
     if (!pressed) {
@@ -85,16 +108,32 @@ static int DashboardBackEvent(bool pressed)
     }
     if (!s_menuOpen || GUI_PadBlocksNavigation()) return 0;
     if (s_backHeld) return 1; // Dedupe SDL joystick + controller events.
+    if (s_quitPromptOpen) {
+        s_backHeld = true;
+        s_cancelQuitPrompt = true;
+        return 1;
+    }
     if (igIsPopupOpen_Str(NULL, ImGuiPopupFlags_AnyPopup)) return 0;
     s_backHeld = true;
-    if (s_menuPage != 0) {
-        GUI_PadCancelCapture();
-        s_menuPage = 0;
+    if (s_inPage) {
+        s_inPage = false;
+        s_focusPageNextFrame = false;
         s_focusNavOnOpen = true;
     } else {
         DashboardSetOpen(false);
     }
     return 1;
+}
+
+// Selecting a category always enters its corresponding content panel.
+// The next selectable ImGui item in that child receives controller focus.
+static void DashboardEnterPage(int page)
+{
+    if (s_menuPage == 2 && page != 2) GUI_PadCancelCapture();
+    s_menuPage = page;
+    s_inPage = true;
+    s_focusNavOnOpen = false;
+    s_focusPageNextFrame = true;
 }
 
 // A standardized controller may also send raw joystick events. Map physical
@@ -285,6 +324,7 @@ static void DashboardDisplaySettings(void)
         igTextWrapped("Import ROM data first; display preferences are available before starting a new game.");
         return;
     }
+    DashboardFocusPageItem();
     int fps = (int)SIM_GetFrameRateMode();
     if (fps >= 0 && fps < 4 && igCombo_Str_arr("Frame rate", &fps, fpsModes, 4, 4)) {
         SIM_RequestFrameRateMode((u32)fps);
@@ -467,7 +507,9 @@ void SIM_GUI_Prj_Toolbar(int canImport)
     const float outerMargin = 12.0f;
     const float gutter = 12.0f;
     const float navWidth = 180.0f;
-    const float navTop = 76.0f;
+    // Keep both header buttons clear of the navigation region on narrow views.
+    const bool compactHeader = width < 390.0f;
+    const float navTop = compactHeader ? 116.0f : 76.0f;
     const float navHeight = sideNav ? height - navTop - outerMargin : (tabRow ? 58.0f : 158.0f);
     const float pageX = sideNav ? outerMargin + navWidth + gutter : outerMargin;
     const float pageY = sideNav ? navTop : navTop + navHeight + gutter;
@@ -485,16 +527,46 @@ void SIM_GUI_Prj_Toolbar(int canImport)
 
     if (igBegin("Lake-Trio##dashboard", NULL, flags)) {
         igTextUnformatted("Lake Trio", NULL);
-        // Keep the resume button on its own row on very small windows.
-        if (!sideNav && !tabRow) {
-            igSpacing();
-        } else {
-            igSameLine(0.0f, 20.0f);
-        }
-        if (igButton("Resume [F1]", (ImVec2){ 125.0f, 32.0f })) {
+        // Resume and Quit are adjacent on normal viewports; stack them on
+        // narrow windows so neither overlaps the navigation panel.
+        if (compactHeader) igSpacing();
+        else igSameLine(0.0f, 20.0f);
+        if (igButton("Resume", (ImVec2){ 115.0f, 32.0f })) {
             DashboardSetOpen(false);
         }
+        if (!compactHeader) igSameLine(0.0f, 8.0f);
+        if (igButton("Quit Game", (ImVec2){ 115.0f, 32.0f })) {
+            s_quitPromptOpen = true;
+            s_cancelQuitPrompt = false;
+            igOpenPopup_Str("Quit Lake Trio?", 0);
+        }
         igSeparator();
+
+        // Send SDL_QUIT through the same event loop used by window-close.
+        // The confirmation prevents accidentally ending an unsaved session.
+        if (igBeginPopupModal("Quit Lake Trio?", &s_quitPromptOpen,
+                ImGuiWindowFlags_AlwaysAutoResize)) {
+            igTextWrapped("Quit Lake Trio? Unsaved game progress may be lost.");
+            if (s_cancelQuitPrompt) {
+                s_cancelQuitPrompt = false;
+                s_quitPromptOpen = false;
+                igCloseCurrentPopup();
+            } else {
+                if (igButton("Cancel", (ImVec2){ 115.0f, 32.0f })) {
+                    s_quitPromptOpen = false;
+                    igCloseCurrentPopup();
+                }
+                igSameLine(0.0f, 8.0f);
+                if (igButton("Quit##confirm", (ImVec2){ 115.0f, 32.0f })) {
+                    SDL_Event event = {0};
+                    event.type = SDL_QUIT;
+                    SDL_PushEvent(&event);
+                    s_quitPromptOpen = false;
+                    igCloseCurrentPopup();
+                }
+            }
+            igEndPopup();
+        }
 
         const char *labels[] = { "Game", "Display", "Controls" };
         igSetCursorPos((ImVec2){ outerMargin, navTop });
@@ -517,10 +589,7 @@ void SIM_GUI_Prj_Toolbar(int canImport)
                 }
                 const bool clicked = igButton(labels[i], (ImVec2){ cellWidth, 38.0f });
                 if (selected) igPopStyleColor(2);
-                if (clicked) {
-                    if (s_menuPage == 2 && i != 2) GUI_PadCancelCapture();
-                    s_menuPage = i;
-                }
+                if (clicked) DashboardEnterPage(i);
             }
         }
         igEndChild();
@@ -533,6 +602,7 @@ void SIM_GUI_Prj_Toolbar(int canImport)
                     igTextUnformatted("Game", NULL);
                     igSeparator();
                     igTextWrapped("Import the ROM data needed by the existing game installation.");
+                    DashboardFocusPageItem();
                     if (igButton("Import", (ImVec2){ 170.0f, 38.0f }) && canImport) {
                         PlatformMenu_RequestAction(LAKE_TRIO_MENU_IMPORT_ROM);
                         DashboardSetOpen(false);
@@ -546,6 +616,7 @@ void SIM_GUI_Prj_Toolbar(int canImport)
                     igTextUnformatted("Controls", NULL);
                     igSeparator();
                     igTextWrapped("Select a Keyboard or Controller binding below, then press the new input. Escape clears a binding.");
+                    DashboardFocusPageItem();
                     GUI_PadDrawBindings();
                     break;
                 }
