@@ -20,7 +20,7 @@ Download your platform's build from [Releases](https://github.com/Royal2-4/Lake-
 - **Linux:** `Lake-Trio.AppImage` - mark it as executable first!
 - **Windows 11:** `Lake-Trio-Windows-x86_64.zip ` - extract to a folder of your choice,  launch from main.exe.
 
-# Press F1 or L3+R3 **Game → Import ROM…** and select your own provided Platinum `.nds` file. Both US and European versions are supported. The game starts once the import finishes.
+# Press F1 or L3+R3 ** → Game → Import ROM…** and select your own provided Platinum `.nds` file. Both US and European versions are supported. The game starts once the import finishes.
 
 The Linux x86-64 AppImage includes Qt, its plugins, SDL and the C/C++ runtime;
 you do not need to install a matching Qt version. It supports Wayland and X11
