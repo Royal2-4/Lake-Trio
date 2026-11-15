@@ -1,0 +1,154 @@
+diff --git a/include/simulator/config/sim_config.h b/include/simulator/config/sim_config.h
+index 9c251dc..cbfcd9b 100644
+--- a/include/simulator/config/sim_config.h
++++ b/include/simulator/config/sim_config.h
+@@ -6,7 +6,8 @@
+ typedef enum {
+     SIM_CONFIG_SCREEN_LAYOUT_VERTICAL, /* Vertical screen layout (like a real DS) */
+     SIM_CONFIG_SCREEN_LAYOUT_HORIZONTAL, /* DS screens side by side */
+-    SIM_CONFIG_SCREEN_LAYOUT_LARGE /* One large screen and one small screen next to it */
++    SIM_CONFIG_SCREEN_LAYOUT_LARGE, /* One large screen and one small screen next to it */
++    SIM_CONFIG_SCREEN_LAYOUT_SINGLE /* Show one DS screen at a time */
+ } SIM_config_screen_layout_type;
+ 
+ enum SIM_config_skip_intro_mode {
+diff --git a/libraries/sim/src/config/sim_config.c b/libraries/sim/src/config/sim_config.c
+index 4ec1afa..e98d6d2 100644
+--- a/libraries/sim/src/config/sim_config.c
++++ b/libraries/sim/src/config/sim_config.c
+@@ -521,6 +521,9 @@ static const char * ScreenLayoutTypeToString(SIM_config_screen_layout_type layou
+         case SIM_CONFIG_SCREEN_LAYOUT_LARGE:
+             ret = "large";
+             break;
++        case SIM_CONFIG_SCREEN_LAYOUT_SINGLE:
++            ret = "single";
++            break;
+     }
+     return ret;
+ }
+@@ -535,6 +538,8 @@ static SIM_config_screen_layout_type StringToScreenLayoutType(const char * str)
+         ret = SIM_CONFIG_SCREEN_LAYOUT_HORIZONTAL;
+     } else if (strcmp(str, "large") == 0) {
+         ret = SIM_CONFIG_SCREEN_LAYOUT_LARGE;
++    } else if (strcmp(str, "single") == 0) {
++        ret = SIM_CONFIG_SCREEN_LAYOUT_SINGLE;
+     }
+     
+     return ret;
+diff --git a/libraries/sim/src/sim_main.cpp b/libraries/sim/src/sim_main.cpp
+index 024f944..57fe33c 100644
+--- a/libraries/sim/src/sim_main.cpp
++++ b/libraries/sim/src/sim_main.cpp
+@@ -200,7 +200,10 @@ static void Render(int x, int y, int width, int height, int layout) {
+     glUseProgram(program);
+     glUniform1i(glGetUniformLocation(program, "source"), 0);
+     glBindVertexArray(vao);
+-    if (layout == SIM_CONFIG_SCREEN_LAYOUT_HORIZONTAL) {
++    if (layout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE) {
++        // A single DS image already fills the output. Do not split the CRT pass.
++        Screen(x, y, width, height);
++    } else if (layout == SIM_CONFIG_SCREEN_LAYOUT_HORIZONTAL) {
+         Screen(x, y, width / 2, height);
+         Screen(x + width / 2, y, width - width / 2, height);
+     } else if (layout == SIM_CONFIG_SCREEN_LAYOUT_LARGE) {
+@@ -931,10 +934,11 @@ static void GetWindowDimensionsForMode(u32 mode, u32 *width, u32 *height) {
+     *height *= 2;
+   } else if (s_SIM_config.screenLayout == SIM_CONFIG_SCREEN_LAYOUT_HORIZONTAL) {
+     *width *= 2;
+-  } else {
++  } else if (s_SIM_config.screenLayout == SIM_CONFIG_SCREEN_LAYOUT_LARGE) {
+     *width *= 3;
+     *height *= 2;
+   }
++  // One Screen keeps the size of just one 256x192 display.
+ }
+ 
+ void SIM_ApplyPendingWindowSizeMode(void) {
+@@ -2835,6 +2839,9 @@ void *SIM_Render(void *arg) {
+     case SIM_CONFIG_SCREEN_LAYOUT_LARGE:
+       aspectRatio = 768.0f / 384.0f;
+       break;
++    case SIM_CONFIG_SCREEN_LAYOUT_SINGLE:
++      aspectRatio = 256.0f / 192.0f;
++      break;
+     }
+ 
+     viewWidth = windowWidth;
+@@ -2850,8 +2857,22 @@ void *SIM_Render(void *arg) {
+ 
+     glViewport(viewX, viewY, viewWidth, viewHeight);
+ 
+-    // Set up the bounding box of the touch panel
+-    if (SIM_GetScreensSwapped()) {
++    // Set up the bounding box of the touch panel. For One Screen, the
++    // touchscreen accepts input only when the sub display is visible.
++    if (s_SIM_config.screenLayout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE) {
++      if (SIM_GetScreensSwapped()) {
++        s_TouchPanelCoords[0] = viewX;
++        s_TouchPanelCoords[1] = viewY;
++        s_TouchPanelCoords[2] = viewX + viewWidth;
++        s_TouchPanelCoords[3] = viewY + viewHeight;
++      } else {
++        // Inverted bounds make all mouse coordinates fail the hit test.
++        s_TouchPanelCoords[0] = 1;
++        s_TouchPanelCoords[1] = 1;
++        s_TouchPanelCoords[2] = 0;
++        s_TouchPanelCoords[3] = 0;
++      }
++    } else if (SIM_GetScreensSwapped()) {
+       switch (s_SIM_config.screenLayout) {
+       default:
+       case SIM_CONFIG_SCREEN_LAYOUT_VERTICAL:
+diff --git a/libraries/sim/src/sim_screenquads.c b/libraries/sim/src/sim_screenquads.c
+index a3803eb..76f2e27 100644
+--- a/libraries/sim/src/sim_screenquads.c
++++ b/libraries/sim/src/sim_screenquads.c
+@@ -490,6 +490,30 @@ static G3SIM_Vertex_t s_LargeScreenQuadSwapped[] = {
+     }
+ };
+ 
++// Present the selected half of the existing two-screen texture directly.
++// The OpenGL viewport remains a full 4:3 window; the separate 3D render
++// target still uses s_SIM_config.internalResolutionScale.
++static G3SIM_Vertex_t s_SingleMainScreenQuad[] = {
++    { .x = -1.0f, .y = -1.0f, .z = 1.0f, .s = 0.0f, .t = 0.5f },
++    { .x = -1.0f, .y = 1.0f, .z = 1.0f, .s = 0.0f, .t = 1.0f },
++    { .x = 1.0f, .y = -1.0f, .z = 1.0f, .s = 1.0f, .t = 0.5f },
++    { .x = 1.0f, .y = -1.0f, .z = 1.0f, .s = 1.0f, .t = 0.5f },
++    { .x = 1.0f, .y = 1.0f, .z = 1.0f, .s = 1.0f, .t = 1.0f },
++    { .x = -1.0f, .y = 1.0f, .z = 1.0f, .s = 0.0f, .t = 1.0f },
++};
++
++// Present the selected half of the existing two-screen texture directly.
++// The OpenGL viewport remains a full 4:3 window; the separate 3D render
++// target still uses s_SIM_config.internalResolutionScale.
++static G3SIM_Vertex_t s_SingleTouchScreenQuad[] = {
++    { .x = -1.0f, .y = -1.0f, .z = 1.0f, .s = 0.0f, .t = 0.0f },
++    { .x = -1.0f, .y = 1.0f, .z = 1.0f, .s = 0.0f, .t = 0.5f },
++    { .x = 1.0f, .y = -1.0f, .z = 1.0f, .s = 1.0f, .t = 0.0f },
++    { .x = 1.0f, .y = -1.0f, .z = 1.0f, .s = 1.0f, .t = 0.0f },
++    { .x = 1.0f, .y = 1.0f, .z = 1.0f, .s = 1.0f, .t = 0.5f },
++    { .x = -1.0f, .y = 1.0f, .z = 1.0f, .s = 0.0f, .t = 0.5f },
++};
++
+ G3SIM_Vertex_t * sim_GetScreenQuadArray(SIM_config_screen_layout_type layout, BOOL isSwapped)
+ {
+     switch(layout) {
+@@ -500,6 +524,8 @@ G3SIM_Vertex_t * sim_GetScreenQuadArray(SIM_config_screen_layout_type layout, BO
+             return isSwapped ? s_HorizontalScreenQuadSwapped : s_HorizontalScreenQuad;
+         case SIM_CONFIG_SCREEN_LAYOUT_LARGE:
+             return isSwapped ? s_LargeScreenQuadSwapped : s_LargeScreenQuad;
++        case SIM_CONFIG_SCREEN_LAYOUT_SINGLE:
++            return isSwapped ? s_SingleTouchScreenQuad : s_SingleMainScreenQuad;
+     }
+ }
+ 
+@@ -512,5 +538,7 @@ int sim_GetScreenQuadVertexCount(SIM_config_screen_layout_type layout, BOOL isSw
+         case SIM_CONFIG_SCREEN_LAYOUT_HORIZONTAL:
+         case SIM_CONFIG_SCREEN_LAYOUT_LARGE:
+             return 12;
++        case SIM_CONFIG_SCREEN_LAYOUT_SINGLE:
++            return 6;
+     }
+ }
+\ No newline at end of file
