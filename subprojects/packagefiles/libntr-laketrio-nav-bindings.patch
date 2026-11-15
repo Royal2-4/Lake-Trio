@@ -1,7 +1,7 @@
 diff --git a/libraries/sim/cimgui/imgui/backends/imgui_impl_sdl2.cpp b/libraries/sim/cimgui/imgui/backends/imgui_impl_sdl2.cpp
 --- a/libraries/sim/cimgui/imgui/backends/imgui_impl_sdl2.cpp
 +++ b/libraries/sim/cimgui/imgui/backends/imgui_impl_sdl2.cpp
-@@ -756,3 +756,26 @@
+@@ -756,3 +756,47 @@
 +// Lake-Trio keeps gameplay button assignments in game.ini as *raw* SDL
 +// joystick button indices. ImGui normally assumes SDL_CONTROLLER_BUTTON_A/B,
 +// which ignores a user-selected Nintendo-style face-button layout.
@@ -15,12 +15,33 @@ diff --git a/libraries/sim/cimgui/imgui/backends/imgui_impl_sdl2.cpp b/libraries
 +    {
 +        SDL_Joystick* joystick = SDL_GameControllerGetJoystick(controller);
 +        const int buttonCount = joystick ? SDL_JoystickNumButtons(joystick) : 0;
-+        confirm |= (boundA >= 0 && boundA < buttonCount)
-+            ? SDL_JoystickGetButton(joystick, boundA) != 0
-+            : SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_A) != 0;
-+        back |= (boundB >= 0 && boundB < buttonCount)
-+            ? SDL_JoystickGetButton(joystick, boundB) != 0
-+            : SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_B) != 0;
++        const SDL_GameControllerButtonBind defaultA =
++            SDL_GameControllerGetBindForButton(controller, SDL_CONTROLLER_BUTTON_A);
++        const SDL_GameControllerButtonBind defaultB =
++            SDL_GameControllerGetBindForButton(controller, SDL_CONTROLLER_BUTTON_B);
++        const int rawA = defaultA.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON ? defaultA.value.button : -1;
++        const int rawB = defaultB.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON ? defaultB.value.button : -1;
++        const bool assignedA = boundA >= 0 && boundA < buttonCount;
++        const bool assignedB = boundB >= 0 && boundB < buttonCount;
++        int confirmButton = assignedA ? boundA : rawA;
++        int backButton = assignedB ? boundB : rawB;
++        // The binding editor clears an existing assignment before a swap is
++        // complete. Never route the claimed physical button to both actions.
++        if (confirmButton >= 0 && confirmButton == backButton)
++        {
++            if (assignedA && !assignedB)
++                backButton = rawA != confirmButton ? rawA : -1;
++            else if (assignedB && !assignedA)
++                confirmButton = rawB != backButton ? rawB : -1;
++            else
++                backButton = -1;
++        }
++        confirm |= confirmButton >= 0 && confirmButton < buttonCount
++            ? SDL_JoystickGetButton(joystick, confirmButton) != 0
++            : (!assignedA && !assignedB && rawA < 0 && SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_A) != 0);
++        back |= backButton >= 0 && backButton < buttonCount
++            ? SDL_JoystickGetButton(joystick, backButton) != 0
++            : (!assignedA && !assignedB && rawB < 0 && SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_B) != 0);
 +    }
 +    io.AddKeyEvent(ImGuiKey_GamepadFaceDown, confirm);  // Confirm (game A)
 +    io.AddKeyEvent(ImGuiKey_GamepadFaceRight, back);    // Cancel (game B)
