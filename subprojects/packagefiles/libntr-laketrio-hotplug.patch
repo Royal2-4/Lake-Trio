@@ -1,0 +1,18 @@
+diff --git a/libraries/sim/src/gui/gui.c b/libraries/sim/src/gui/gui.c
+--- a/libraries/sim/src/gui/gui.c
++++ b/libraries/sim/src/gui/gui.c
+@@ -1,5 +1,14 @@
+ bool SIM_GUI_ProcessEvent(SDL_Event *aEvent)
+ {
++    // ImGui's SDL2 backend tracks an opened controller handle. It must see
++    // device changes even while Lake-Trio's dashboard is hidden; otherwise
++    // connecting a controller after startup, or reconnecting it, leaves
++    // menu navigation bound to the old (or missing) controller. The backend
++    // only marks its gamepad list dirty for these events; game buttons are
++    // still handled by Lake-Trio as before.
++    if (aEvent->type == SDL_CONTROLLERDEVICEADDED
++        || aEvent->type == SDL_CONTROLLERDEVICEREMOVED)
++        ImGui_ImplSDL2_ProcessEvent(aEvent);
+     // Honor input capture from both the native Input dialog and the
+     // dashboard's embedded Controls editor before consuming overlay keys.
+     if (GUI_PadProcessEvent(aEvent)) return true;

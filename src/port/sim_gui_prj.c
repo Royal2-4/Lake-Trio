@@ -47,8 +47,12 @@ static bool s_l3Held;
 static bool s_r3Held;
 static bool s_comboLatched;
 static bool s_backHeld;
-// Controller navigation has two levels: category list and active page.
-// A on a category enters the page; B returns to categories, then closes.
+// Controller focus regions: header actions, categories, and active page.
+// A on a category enters its page. LB/RB cycle regions; B goes back.
+static bool s_inHeader;
+static bool s_focusHeaderNextFrame;
+static bool s_leftShoulderHeld;
+static bool s_rightShoulderHeld;
 static bool s_focusNavOnOpen;
 static bool s_focusPageNextFrame;
 static bool s_inPage;
@@ -75,12 +79,18 @@ static void DashboardSetOpen(bool open)
     s_menuOpen = open;
     if (open) {
         s_inPage = false;
+        s_inHeader = false;
+        s_focusHeaderNextFrame = false;
         s_focusNavOnOpen = true;
         s_focusPageNextFrame = false;
+        s_leftShoulderHeld = s_rightShoulderHeld = false;
     } else {
         GUI_PadCancelCapture();
         s_inPage = false;
+        s_inHeader = false;
+        s_focusHeaderNextFrame = false;
         s_focusPageNextFrame = false;
+        s_leftShoulderHeld = s_rightShoulderHeld = false;
         s_backHeld = false;
         // If a quit confirmation was showing, dismiss it on reopening.
         if (s_quitPromptOpen) s_cancelQuitPrompt = true;
@@ -98,8 +108,8 @@ static void DashboardFocusPageItem(void)
     }
 }
 
-// B leaves the active page and returns focus to the category list; pressing
-// B again closes the dashboard. Drop-downs and binding capture retain priority.
+// B leaves either the header or the active page for the category list;
+// B from categories closes the dashboard. Popups and binding capture win.
 static int DashboardBackEvent(bool pressed)
 {
     if (!pressed) {
@@ -115,8 +125,10 @@ static int DashboardBackEvent(bool pressed)
     }
     if (igIsPopupOpen_Str(NULL, ImGuiPopupFlags_AnyPopup)) return 0;
     s_backHeld = true;
-    if (s_inPage) {
+    if (s_inPage || s_inHeader) {
         s_inPage = false;
+        s_inHeader = false;
+        s_focusHeaderNextFrame = false;
         s_focusPageNextFrame = false;
         s_focusNavOnOpen = true;
     } else {
@@ -132,8 +144,36 @@ static void DashboardEnterPage(int page)
     if (s_menuPage == 2 && page != 2) GUI_PadCancelCapture();
     s_menuPage = page;
     s_inPage = true;
+    s_inHeader = false;
+    s_focusHeaderNextFrame = false;
     s_focusNavOnOpen = false;
     s_focusPageNextFrame = true;
+}
+
+// LB/RB moves among header, category list, and selected page. This gives the
+// header buttons an explicit gamepad focus route even though they live in
+// the dashboard's root window rather than a child panel.
+static int DashboardShoulderEvent(bool right, bool pressed)
+{
+    bool *held = right ? &s_rightShoulderHeld : &s_leftShoulderHeld;
+    if (!pressed) {
+        *held = false;
+        return 0;
+    }
+    if (!s_menuOpen || GUI_PadBlocksNavigation()) return 0;
+    if (*held) return 1;
+    *held = true;
+    // A modal or dropdown owns focus until dismissed; do not leave it.
+    if (s_quitPromptOpen || igIsPopupOpen_Str(NULL, ImGuiPopupFlags_AnyPopup)) return 1;
+
+    const int current = s_inHeader ? 0 : (s_inPage ? 2 : 1);
+    const int next = (current + (right ? 1 : 2)) % 3;
+    s_inHeader = next == 0;
+    s_inPage = next == 2;
+    s_focusHeaderNextFrame = next == 0;
+    s_focusNavOnOpen = next == 1;
+    s_focusPageNextFrame = next == 2;
+    return 1;
 }
 
 // A standardized controller may also send raw joystick events. Map physical
@@ -152,6 +192,27 @@ static int DashboardRawBButton(SDL_JoystickID instance)
     }
     const int fallback = SIM_GetConfigPtr()->padSettings.bJoyKey;
     return fallback >= 0 && fallback < 256 ? fallback : -1;
+}
+
+// SDL can report a controller press as both a raw joystick event and a
+// standardized controller event. Resolve LB/RB from the same controller map
+// used for L3/R3, and let the held flags deduplicate the two event streams.
+// Unmapped joysticks retain their existing controls without guessing indices.
+static int DashboardRawShoulder(SDL_JoystickID instance, int button)
+{
+    for (int i = 0; i < SDL_NumJoysticks(); ++i) {
+        if (SDL_JoystickGetDeviceInstanceID(i) != instance) continue;
+        if (!SDL_IsGameController(i)) return -1;
+        SDL_GameController *pad = SDL_GameControllerOpen(i);
+        if (!pad) return -1;
+        SDL_GameControllerButtonBind left = SDL_GameControllerGetBindForButton(pad, SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+        SDL_GameControllerButtonBind right = SDL_GameControllerGetBindForButton(pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
+        SDL_GameControllerClose(pad);
+        if (left.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON && left.value.button == button) return 0;
+        if (right.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON && right.value.button == button) return 1;
+        return -1;
+    }
+    return -1;
 }
 
 // Write shortcut diagnostics only when explicitly requested. For Gaming Mode,
@@ -233,6 +294,7 @@ int SIM_GUI_Prj_OverlayHandleEvent(const SDL_Event *event)
     if (event->type == SDL_JOYBUTTONDOWN || event->type == SDL_JOYBUTTONUP) {
         if (GUI_PadBlocksNavigation()) {
             s_l3Held = s_r3Held = s_comboLatched = s_backHeld = false;
+            s_leftShoulderHeld = s_rightShoulderHeld = false;
             return 0;
         }
         const SIM_config_type *config = SIM_GetConfigPtr();
@@ -246,6 +308,11 @@ int SIM_GUI_Prj_OverlayHandleEvent(const SDL_Event *event)
         const int stickToggle = DashboardStickEvent(event->jbutton.which, event->jbutton.button, l3, r3,
             event->type == SDL_JOYBUTTONDOWN);
         if (stickToggle) return 1;
+        if (s_menuOpen) {
+            const int shoulder = DashboardRawShoulder(event->jbutton.which, event->jbutton.button);
+            if (shoulder >= 0 && DashboardShoulderEvent(shoulder == 1,
+                    event->type == SDL_JOYBUTTONDOWN)) return 1;
+        }
         if (s_menuOpen && event->jbutton.button != l3 && event->jbutton.button != r3
             && event->jbutton.button == DashboardRawBButton(event->jbutton.which)) {
             return DashboardBackEvent(event->type == SDL_JOYBUTTONDOWN);
@@ -255,11 +322,17 @@ int SIM_GUI_Prj_OverlayHandleEvent(const SDL_Event *event)
     if (event->type == SDL_CONTROLLERBUTTONDOWN || event->type == SDL_CONTROLLERBUTTONUP) {
         if (GUI_PadBlocksNavigation()) {
             s_l3Held = s_r3Held = s_comboLatched = s_backHeld = false;
+            s_leftShoulderHeld = s_rightShoulderHeld = false;
             return 0;
         }
         DashboardShortcutLog("controller %s device=%d button=%u (SDL L3=%d R3=%d)\n",
             event->type == SDL_CONTROLLERBUTTONDOWN ? "down" : "up", (int)event->cbutton.which,
             (unsigned)event->cbutton.button, SDL_CONTROLLER_BUTTON_LEFTSTICK, SDL_CONTROLLER_BUTTON_RIGHTSTICK);
+        if (event->cbutton.button == SDL_CONTROLLER_BUTTON_LEFTSHOULDER
+            || event->cbutton.button == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) {
+            const bool right = event->cbutton.button == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER;
+            if (DashboardShoulderEvent(right, event->type == SDL_CONTROLLERBUTTONDOWN)) return 1;
+        }
         const int stickToggle = DashboardStickEvent(event->cbutton.which, event->cbutton.button,
             SDL_CONTROLLER_BUTTON_LEFTSTICK, SDL_CONTROLLER_BUTTON_RIGHTSTICK,
             event->type == SDL_CONTROLLERBUTTONDOWN);
@@ -269,10 +342,15 @@ int SIM_GUI_Prj_OverlayHandleEvent(const SDL_Event *event)
         }
         return 0;
     }
+    if (event->type == SDL_CONTROLLERDEVICEREMOVED) {
+        // Avoid a held shoulder/back press staying latched after a hot-unplug.
+        s_leftShoulderHeld = s_rightShoulderHeld = s_backHeld = false;
+    }
     if ((event->type == SDL_JOYDEVICEREMOVED && event->jdevice.which == s_shortcutDevice)
         || (event->type == SDL_CONTROLLERDEVICEREMOVED && event->cdevice.which == s_shortcutDevice)) {
         s_shortcutDevice = -1;
         s_l3Held = s_r3Held = s_comboLatched = s_backHeld = false;
+        s_leftShoulderHeld = s_rightShoulderHeld = false;
     }
     return 0;
 }
@@ -531,6 +609,12 @@ void SIM_GUI_Prj_Toolbar(int canImport)
         // narrow windows so neither overlaps the navigation panel.
         if (compactHeader) igSpacing();
         else igSameLine(0.0f, 20.0f);
+        // Focus the first header action on the next frame after LB/RB.
+        // D-pad right/down then reaches Quit Game using standard ImGui nav.
+        if (s_focusHeaderNextFrame) {
+            igSetKeyboardFocusHere(0);
+            s_focusHeaderNextFrame = false;
+        }
         if (igButton("Resume", (ImVec2){ 115.0f, 32.0f })) {
             DashboardSetOpen(false);
         }
