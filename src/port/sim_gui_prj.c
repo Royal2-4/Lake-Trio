@@ -164,17 +164,49 @@ int SIM_GUI_Prj_OverlayHandleEvent(const SDL_Event *event)
     return 0;
 }
 
+// List the *selected display's* supported pixel dimensions instead of
+// renaming the simulator's x1-x4 window multipliers. SDL can report multiple
+// refresh rates for the same resolution: show each size only once.
+#define LAKE_TRIO_MAX_RESOLUTIONS 48
+
+typedef struct DashboardResolution {
+    int width;
+    int height;
+    char label[80];
+} DashboardResolution;
+
+static int DashboardAddResolution(DashboardResolution *entries, int count,
+    int width, int height, const char *suffix)
+{
+    if (width < 640 || height < 480 || width > 8192 || height > 4320)
+        return count;
+    for (int i = 0; i < count; ++i) {
+        if (entries[i].width == width && entries[i].height == height)
+            return count;
+    }
+    if (count >= LAKE_TRIO_MAX_RESOLUTIONS) return count;
+    DashboardResolution *entry = &entries[count];
+    entry->width = width;
+    entry->height = height;
+    const char *standard = width == 1920 && height == 1080 ? " (1080p)"
+        : width == 1280 && height == 720 ? " (720p)"
+        : width == 2560 && height == 1440 ? " (1440p)"
+        : width == 3840 && height == 2160 ? " (4K)" : "";
+    snprintf(entry->label, sizeof(entry->label), "%d x %d%s%s",
+        width, height, standard, suffix ? suffix : "");
+    return count + 1;
+}
+
 static void DashboardDisplaySettings(void)
 {
-    const SIM_config_type *config = SIM_GetConfigPtr();
+    SIM_config_type *config = SIM_GetConfigPtr();
     const char *fpsModes[] = { "30 FPS", "60 FPS", "Auto (display refresh)", "Unlimited" };
-    const char *windowModes[] = { "1x window", "2x window", "3x window", "4x window" };
     const char *renderModes[] = { "1x", "2x", "3x", "4x" };
+    const char *layoutNames[] = { "Vertical", "Horizontal", "Large Screen" };
 
     igTextUnformatted("Display & Performance", NULL);
     igSeparator();
-    // ROM import initializes the normal simulator update path. Pending display
-    // requests are not applied while the missing-resource screen is active.
+    // ROM import initializes the simulator's normal update/rendering path.
     if (SIM_GetMissingResourcePath() != NULL) {
         igTextWrapped("Import ROM data first; display preferences are available before starting a new game.");
         return;
@@ -194,29 +226,94 @@ static void DashboardDisplaySettings(void)
         SIM_RequestVsyncEnabled(vsync);
         s_saveConfigNextFrame = true;
     }
+
     igSpacing();
+    igSeparator();
+    igTextUnformatted("Window resolution", NULL);
+
+    DashboardResolution modes[LAKE_TRIO_MAX_RESOLUTIONS];
+    int count = 0;
+    const int display = (int)SIM_GetMonitor() - 1;
+    SDL_DisplayMode desktop;
+    const bool hasDesktop = SDL_GetDesktopDisplayMode(display, &desktop) == 0;
+    if (hasDesktop) {
+        count = DashboardAddResolution(modes, count, desktop.w, desktop.h, " (Desktop)");
+    }
+    const int modeCount = SDL_GetNumDisplayModes(display);
+    for (int i = 0; i < modeCount; ++i) {
+        SDL_DisplayMode mode;
+        if (SDL_GetDisplayMode(display, i, &mode) != 0) continue;
+        // Windowed sizes bigger than the selected desktop are difficult to
+        // use, especially in SteamOS Gaming Mode. Keep the list usable.
+        if (hasDesktop && (mode.w > desktop.w || mode.h > desktop.h)) continue;
+        count = DashboardAddResolution(modes, count, mode.w, mode.h, NULL);
+    }
+    if (config->customWindowWidth >= 640 && config->customWindowHeight >= 480) {
+        count = DashboardAddResolution(modes, count,
+            (int)config->customWindowWidth, (int)config->customWindowHeight,
+            " (Saved)");
+    }
+
+    // Index zero is an explicit placeholder for legacy x1-x4 sizes. It is
+    // never offered as a new resolution: selecting the first real entry must
+    // always issue a resize request.
+    const char *labels[LAKE_TRIO_MAX_RESOLUTIONS + 1];
+    labels[0] = "Choose a resolution...";
+    int chosen = 0;
+    for (int i = 0; i < count; ++i) {
+        labels[i + 1] = modes[i].label;
+        if ((SIM_GetWindowSizeMode() == 6 || SIM_GetWindowSizeMode() == 5)
+            && config->customWindowWidth == (u32)modes[i].width
+            && config->customWindowHeight == (u32)modes[i].height)
+            chosen = i + 1;
+    }
+    if (count > 0) {
+        if (igCombo_Str_arr("Window resolution##lake_trio", &chosen,
+                labels, count + 1, 12) && chosen > 0) {
+            const DashboardResolution *res = &modes[chosen - 1];
+            SIM_RequestWindowResolution((u32)res->width, (u32)res->height);
+            s_lastWindowedMode = 6;
+            // The simulator applies and saves this on its windowing thread.
+        }
+    } else {
+        igTextWrapped("The selected display did not report usable resolutions.");
+    }
+
     int window = (int)SIM_GetWindowSizeMode();
     if (window >= 1 && window <= 4) s_lastWindowedMode = window;
-    int selectedWindow = s_lastWindowedMode - 1;
-    if (igCombo_Str_arr("Window size", &selectedWindow, windowModes, 4, 4)) {
-        s_lastWindowedMode = selectedWindow + 1;
-        if (window != 5) {
-            SIM_RequestWindowSizeMode((u32)s_lastWindowedMode);
-            s_saveConfigNextFrame = true;
-        }
-    }
+    if (window == 6) s_lastWindowedMode = 6;
     bool fullscreen = window == 5;
-    if (igCheckbox("Fullscreen", &fullscreen)) {
+    if (igCheckbox("Fullscreen (desktop)", &fullscreen)) {
         SIM_RequestWindowSizeMode(fullscreen ? 5u : (u32)s_lastWindowedMode);
         s_saveConfigNextFrame = true;
     }
+    igTextWrapped("These are window sizes reported by your selected display. Desktop is the current desktop resolution, which may differ from the panel's physical native resolution.");
+
+    igSpacing();
+    igSeparator();
+    igTextUnformatted("Nintendo DS screens", NULL);
+    int layout = (int)config->screenLayout;
+    if (layout >= 0 && layout < 3
+        && igCombo_Str_arr("Screen layout", &layout, layoutNames, 3, 3)) {
+        config->screenLayout = (SIM_config_screen_layout_type)layout;
+        s_saveConfigNextFrame = true;
+    }
+    bool swapped = config->swapScreens != 0;
+    if (igCheckbox("Swap screens", &swapped)) {
+        config->swapScreens = swapped;
+        SIM_SetScreensSwapped(swapped);
+        s_saveConfigNextFrame = true;
+    }
+
+    igSpacing();
+    igSeparator();
     int scale = (int)SIM_GetInternalResolutionScale() - 1;
-    if (scale >= 0 && scale < 4 && igCombo_Str_arr("Internal 3D resolution", &scale, renderModes, 4, 4)) {
+    if (scale >= 0 && scale < 4
+        && igCombo_Str_arr("Internal 3D resolution", &scale, renderModes, 4, 4)) {
         SIM_RequestInternalResolutionScale((u32)scale + 1u);
         s_saveConfigNextFrame = true;
     }
-    igSpacing();
-    igTextWrapped("Window size uses the project's existing 1x-4x presets, not your monitor's display-mode list. Changes are saved to game.ini.");
+    igTextWrapped("Internal 3D resolution changes rendering quality, not the window resolution. Your in-game Display menu remains available.");
     if (config->frameRateMode == SIM_CONFIG_FRAME_RATE_INF)
         igTextWrapped("Unlimited FPS overrides VSync in the simulator.");
 }

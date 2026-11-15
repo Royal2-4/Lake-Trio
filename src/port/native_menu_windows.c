@@ -38,7 +38,7 @@ static int WatchMenu(void *unused, SDL_Event *event)
         && SIM_GetWindowSizeMode && SIM_RequestWindowSizeMode
         && !(event->key.keysym.mod & (KMOD_CTRL | KMOD_SHIFT | KMOD_ALT | KMOD_GUI))) {
         unsigned mode = SIM_GetWindowSizeMode();
-        if (mode >= 1 && mode <= 4) windowedMode = mode;
+        if ((mode >= 1 && mode <= 4) || mode == 6) windowedMode = mode;
         SIM_RequestWindowSizeMode(mode == 5 ? windowedMode : 5);
     }
     if (event->type == SDL_SYSWMEVENT && event->syswm.msg->subsystem == SDL_SYSWM_WINDOWS) {

@@ -88,7 +88,7 @@ class WindowKeys : public QObject {
         if (event->type() == QEvent::KeyPress && !key->isAutoRepeat()
             && SIM_GetWindowSizeMode && SIM_RequestWindowSizeMode) {
             unsigned mode = SIM_GetWindowSizeMode();
-            if (mode >= 1 && mode <= 4) windowedMode = mode;
+            if ((mode >= 1 && mode <= 4) || mode == 6) windowedMode = mode;
             SIM_RequestWindowSizeMode(mode == 5 ? windowedMode : 5);
         }
         return true;
@@ -383,7 +383,7 @@ extern "C" int PlatformWindow_SetFullscreen(SDL_Window *window, unsigned flags)
     if (window != gameWindow) return SDL_SetWindowFullscreen(window, flags);
     if (flags && SIM_GetWindowSizeMode) {
         unsigned mode = SIM_GetWindowSizeMode();
-        if (mode >= 1 && mode <= 4) windowedMode = mode;
+        if ((mode >= 1 && mode <= 4) || mode == 6) windowedMode = mode;
     }
     shell->menuBar()->setVisible(flags == 0);
     if (flags) shell->showFullScreen(); else shell->showNormal();
