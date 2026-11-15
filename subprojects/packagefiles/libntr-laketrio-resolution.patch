@@ -1,0 +1,153 @@
+diff --git a/include/simulator/config/sim_config.h b/include/simulator/config/sim_config.h
+--- a/include/simulator/config/sim_config.h
++++ b/include/simulator/config/sim_config.h
+@@ -133,6 +133,8 @@
+     int undergroundRadarJoyKey;
+ 
+     BOOL autosaveEnabled;
++    u32 customWindowWidth; /* 0 unless a specific window resolution was selected */
++    u32 customWindowHeight;
+ 
+ } SIM_config_type;
+ 
+diff --git a/include/simulator/sim.h b/include/simulator/sim.h
+--- a/include/simulator/sim.h
++++ b/include/simulator/sim.h
+@@ -79,6 +79,7 @@
+ void SIM_ApplyPendingInternalResolutionScale(void);
+ u32 SIM_GetWindowSizeMode(void);
+ void SIM_RequestWindowSizeMode(u32 mode);
++void SIM_RequestWindowResolution(u32 width, u32 height);
+ void SIM_ApplyPendingWindowSizeMode(void);
+ u32 SIM_GetSkipIntroMode(void);
+ void SIM_RequestSkipIntroMode(u32 mode);
+diff --git a/libraries/sim/src/config/sim_config.c b/libraries/sim/src/config/sim_config.c
+--- a/libraries/sim/src/config/sim_config.c
++++ b/libraries/sim/src/config/sim_config.c
+@@ -329,11 +329,20 @@
+         }
+     }
+     if(VIDEO_MATCH("WindowSize")) {
+-        int mode = strcmp(value, "FS") == 0
+-            ? 5
++        int mode = strcmp(value, "FS") == 0 ? 5
++            : SDL_strcasecmp(value, "CUSTOM") == 0 ? 6
+             : atoi(value[0] == 'x' || value[0] == 'X' ? value + 1 : value);
+-        if(mode >= 1 && mode <= 5) {
++        if(mode >= 1 && mode <= 6) {
+             config->windowSizeMode = mode;
++        }
++    }
++    if (VIDEO_MATCH("WindowResolution")) {
++        unsigned width = 0, height = 0;
++        char extra = 0;
++        if (sscanf(value, "%ux%u%c", &width, &height, &extra) == 2
++            && width >= 640 && height >= 480 && width <= 8192 && height <= 4320) {
++            config->customWindowWidth = width;
++            config->customWindowHeight = height;
+         }
+     }
+     if(VIDEO_MATCH("Vsync")) {
+@@ -595,6 +604,8 @@
+     aConfig->internalResolutionScale = 1;
+ #endif
+     aConfig->windowSizeMode = 2;
++    aConfig->customWindowWidth = 0;
++    aConfig->customWindowHeight = 0;
+     aConfig->skipIntroMode = SIM_CONFIG_SKIP_INTRO_LOAD;
+     aConfig->screenLayout = SIM_CONFIG_SCREEN_LAYOUT_LARGE;
+     aConfig->swapScreens = FALSE;
+@@ -758,10 +769,16 @@
+     fprintf(configFile, "ScreenLayout=%s\n", ScreenLayoutTypeToString(aConfig->screenLayout));
+     fprintf(configFile, "SwapScreens=%s\n", aConfig->swapScreens ? "TRUE" : "FALSE");
+     fprintf(configFile, "3DScale=x%d\n", aConfig->internalResolutionScale);
+-    if(aConfig->windowSizeMode == 5) {
++    if (aConfig->windowSizeMode == 5) {
+         fprintf(configFile, "WindowSize=FS\n");
++    } else if (aConfig->windowSizeMode == 6) {
++        fprintf(configFile, "WindowSize=CUSTOM\n");
+     } else {
+         fprintf(configFile, "WindowSize=x%d\n", aConfig->windowSizeMode);
++    }
++    if (aConfig->customWindowWidth >= 640 && aConfig->customWindowHeight >= 480) {
++        fprintf(configFile, "WindowResolution=%ux%u\n",
++            aConfig->customWindowWidth, aConfig->customWindowHeight);
+     }
+     fprintf(configFile, "Vsync=%s\n", aConfig->vsyncEnabled ? "TRUE" : "FALSE");
+     fprintf(configFile, "Fps=%s\n",
+diff --git a/libraries/sim/src/sim_main.cpp b/libraries/sim/src/sim_main.cpp
+--- a/libraries/sim/src/sim_main.cpp
++++ b/libraries/sim/src/sim_main.cpp
+@@ -270,6 +270,7 @@
+ static std::atomic<int> sScreensSwapped{-1};
+ static std::atomic<u32> sRequestedInternalResolutionScale{0};
+ static std::atomic<u32> sRequestedWindowSizeMode{0};
++static std::atomic<u64> sRequestedWindowResolution{0};
+ static std::atomic<u32> sRequestedSkipIntroMode{0};
+ static std::atomic<u32> sRequestedVsyncEnabled{0};
+ static std::atomic<u32> sRequestedFrameRateMode{0};
+@@ -897,12 +898,28 @@
+ }
+ 
+ void SIM_RequestWindowSizeMode(u32 mode) {
+-  if (mode >= 1 && mode <= 5) {
++  if (mode >= 1 && mode <= 6) {
++    sRequestedWindowResolution.store(0);
+     sRequestedWindowSizeMode.store(mode);
+   }
+ }
+ 
++// Enqueue the size change for the simulator/windowing thread. The resulting
++// window size is persisted only after applying the request.
++void SIM_RequestWindowResolution(u32 width, u32 height) {
++  if (width < 640 || height < 480 || width > 8192 || height > 4320) return;
++  sRequestedWindowSizeMode.store(0);
++  sRequestedWindowResolution.store((u64(width) << 32) | u64(height));
++}
++
+ static void GetWindowDimensionsForMode(u32 mode, u32 *width, u32 *height) {
++  if (mode == 6 && s_SIM_config.customWindowWidth >= 640
++      && s_SIM_config.customWindowHeight >= 480) {
++    *width = s_SIM_config.customWindowWidth;
++    *height = s_SIM_config.customWindowHeight;
++    return;
++  }
++  if (mode == 6) mode = 2;
+   *width = SIM_NDS_SCREEN_WIDTH * mode;
+   *height = SIM_NDS_SCREEN_HEIGHT * mode;
+ 
+@@ -917,6 +934,25 @@
+ }
+ 
+ void SIM_ApplyPendingWindowSizeMode(void) {
++  const u64 dimensions = sRequestedWindowResolution.exchange(0);
++  if (dimensions && window != NULL) {
++    const u32 width = (u32)(dimensions >> 32);
++    const u32 height = (u32)dimensions;
++    if (SDL_SetWindowFullscreen(window, 0) == 0) {
++      SDL_SetWindowSize(window, width, height);
++      SDL_SetWindowPosition(window,
++          SDL_WINDOWPOS_CENTERED_DISPLAY(s_SIM_config.monitor - 1),
++          SDL_WINDOWPOS_CENTERED_DISPLAY(s_SIM_config.monitor - 1));
++      s_SIM_config.customWindowWidth = width;
++      s_SIM_config.customWindowHeight = height;
++      s_SIM_config.windowSizeMode = 6;
++      sRequestedWindowSizeMode.store(6);
++      SIM_Config_SaveGameConfigFile(&s_SIM_config);
++    } else {
++      fprintf(stderr, "Failed to leave fullscreen for custom window size: %s\n", SDL_GetError());
++    }
++    return;
++  }
+   u32 requestedMode = sRequestedWindowSizeMode.load();
+   if (requestedMode == 0 || requestedMode == s_SIM_config.windowSizeMode
+       || window == NULL) {
+@@ -1851,7 +1887,7 @@
+   u32 windowWidth;
+ 
+   u32 initialWindowMode = s_SIM_config.windowSizeMode == 5
+-      ? 2
++      ? (s_SIM_config.customWindowWidth >= 640 ? 6 : 2)
+       : s_SIM_config.windowSizeMode;
+   GetWindowDimensionsForMode(initialWindowMode, &windowWidth, &windowHeight);
+ 
