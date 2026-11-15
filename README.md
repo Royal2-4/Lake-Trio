@@ -43,7 +43,7 @@ it with `--appimage-extract-and-run`.
 | Swap screens   | F12                 |
 | Map            | M                   |
 
-Use the mouse for the touch screen. Keyboard and controller bindings are under **Input → Configure Controls…**, including shortcuts for the bike, fishing, field moves and Pokétch apps.
+Use the mouse for the touch screen. Keyboard and controller bindings are under **F1 or L3+R3 → Controls → Rebind as Needed → Apply Changes**, including shortcuts for the bike, fishing, field moves and Pokétch apps.
 
 
 # Optional Settings From In-Game
