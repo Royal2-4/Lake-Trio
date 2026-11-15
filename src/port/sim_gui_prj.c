@@ -18,6 +18,20 @@ extern void GUI_PadDrawBindings(void);
 extern void GUI_PadCancelCapture(void);
 extern bool GUI_PadBlocksNavigation(void);
 
+// Shared with libntr's SDL2 ImGui backend. Return the same raw joystick
+// bindings used by the game, so dashboard confirm/back follows rebinding.
+void LakeTrio_GUI_GetNavButtons(int *confirm, int *back)
+{
+    const SIM_config_type *config = SIM_GetConfigPtr();
+    int a = config ? config->padSettings.aJoyKey : -1;
+    int b = config ? config->padSettings.bJoyKey : -1;
+    if (a < 0 || a > 255) a = -1;
+    if (b < 0 || b > 255) b = -1;
+    if (a >= 0 && a == b) a = b = -1;
+    if (confirm) *confirm = a;
+    if (back) *back = b;
+}
+
 // C-linkage controls supplied by our pinned libntr audio dependency patch.
 extern const char *LakeTrio_Audio_GetOutputDevice(void);
 extern int LakeTrio_Audio_SelectOutputDevice(const char *name);
@@ -184,22 +198,46 @@ static int DashboardShoulderEvent(bool right, bool pressed)
     return 1;
 }
 
-// A standardized controller may also send raw joystick events. Map physical
-// B to its raw index, falling back to the existing game.ini assignment.
+// Raw joystick events must follow the game's *saved B binding*, not SDL's
+// standardized physical B button. Otherwise a Nintendo A/B swap can still
+// close the dashboard when the old physical B is pressed.
 static int DashboardRawBButton(SDL_JoystickID instance)
 {
+    int a, b;
+    LakeTrio_GUI_GetNavButtons(&a, &b);
+    if (b >= 0) return b;
+    // Unbound B: preserve SDL's conventional back behavior, if mapped.
     for (int i = 0; i < SDL_NumJoysticks(); ++i) {
         if (SDL_JoystickGetDeviceInstanceID(i) != instance) continue;
         if (!SDL_IsGameController(i)) break;
         SDL_GameController *pad = SDL_GameControllerOpen(i);
         if (!pad) break;
-        SDL_GameControllerButtonBind b = SDL_GameControllerGetBindForButton(pad, SDL_CONTROLLER_BUTTON_B);
+        SDL_GameControllerButtonBind binding = SDL_GameControllerGetBindForButton(pad, SDL_CONTROLLER_BUTTON_B);
         SDL_GameControllerClose(pad);
-        if (b.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON) return b.value.button;
+        if (binding.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON) return binding.value.button;
         break;
     }
-    const int fallback = SIM_GetConfigPtr()->padSettings.bJoyKey;
-    return fallback >= 0 && fallback < 256 ? fallback : -1;
+    return -1;
+}
+
+// SDL's normalized controller events arrive *in addition* to raw joystick
+// events. Resolve each normalized button to its raw index before consuming
+// the overlay's Back action; do not hardcode SDL_CONTROLLER_BUTTON_B.
+static bool DashboardControllerIsBack(SDL_JoystickID instance, SDL_GameControllerButton button)
+{
+    const int rawBack = DashboardRawBButton(instance);
+    for (int i = 0; i < SDL_NumJoysticks(); ++i) {
+        if (SDL_JoystickGetDeviceInstanceID(i) != instance) continue;
+        if (!SDL_IsGameController(i)) break;
+        SDL_GameController *pad = SDL_GameControllerOpen(i);
+        if (!pad) break;
+        const SDL_GameControllerButtonBind binding = SDL_GameControllerGetBindForButton(pad, button);
+        SDL_GameControllerClose(pad);
+        if (binding.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON)
+            return rawBack >= 0 && binding.value.button == rawBack;
+        break;
+    }
+    return rawBack < 0 && button == SDL_CONTROLLER_BUTTON_B;
 }
 
 // SDL can report a controller press as both a raw joystick event and a
@@ -345,7 +383,8 @@ int SIM_GUI_Prj_OverlayHandleEvent(const SDL_Event *event)
             SDL_CONTROLLER_BUTTON_LEFTSTICK, SDL_CONTROLLER_BUTTON_RIGHTSTICK,
             event->type == SDL_CONTROLLERBUTTONDOWN);
         if (stickToggle) return 1;
-        if (event->cbutton.button == SDL_CONTROLLER_BUTTON_B && s_menuOpen) {
+        if (s_menuOpen && DashboardControllerIsBack(event->cbutton.which,
+                (SDL_GameControllerButton)event->cbutton.button)) {
             return DashboardBackEvent(event->type == SDL_CONTROLLERBUTTONDOWN);
         }
         return 0;

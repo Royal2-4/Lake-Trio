@@ -1,0 +1,39 @@
+diff --git a/libraries/sim/cimgui/imgui/backends/imgui_impl_sdl2.cpp b/libraries/sim/cimgui/imgui/backends/imgui_impl_sdl2.cpp
+--- a/libraries/sim/cimgui/imgui/backends/imgui_impl_sdl2.cpp
++++ b/libraries/sim/cimgui/imgui/backends/imgui_impl_sdl2.cpp
+@@ -761,4 +761,27 @@
+     io.AddKeyEvent(key, merged_value);
+ }
++// Lake-Trio keeps gameplay button assignments in game.ini as *raw* SDL
++// joystick button indices. ImGui normally assumes SDL_CONTROLLER_BUTTON_A/B,
++// which ignores a user-selected Nintendo-style face-button layout.
++extern "C" void LakeTrio_GUI_GetNavButtons(int *confirm, int *back);
++static void ImGui_ImplSDL2_LakeTrio_UpdateBoundFaceButtons(ImGui_ImplSDL2_Data* bd, ImGuiIO& io)
++{
++    int boundA = -1, boundB = -1;
++    LakeTrio_GUI_GetNavButtons(&boundA, &boundB);
++    bool confirm = false, back = false;
++    for (SDL_GameController* controller : bd->Gamepads)
++    {
++        SDL_Joystick* joystick = SDL_GameControllerGetJoystick(controller);
++        const int buttonCount = joystick ? SDL_JoystickNumButtons(joystick) : 0;
++        confirm |= (boundA >= 0 && boundA < buttonCount)
++            ? SDL_JoystickGetButton(joystick, boundA) != 0
++            : SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_A) != 0;
++        back |= (boundB >= 0 && boundB < buttonCount)
++            ? SDL_JoystickGetButton(joystick, boundB) != 0
++            : SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_B) != 0;
++    }
++    io.AddKeyEvent(ImGuiKey_GamepadFaceDown, confirm);  // Confirm (game A)
++    io.AddKeyEvent(ImGuiKey_GamepadFaceRight, back);    // Cancel (game B)
++}
+ static inline float Saturate(float v) { return v < 0.0f ? 0.0f : v  > 1.0f ? 1.0f : v; }
+ static void ImGui_ImplSDL2_UpdateGamepadAnalog(ImGui_ImplSDL2_Data* bd, ImGuiIO& io, ImGuiKey key, SDL_GameControllerAxis axis_no, float v0, float v1)
+@@ -804,6 +804,5 @@
+     ImGui_ImplSDL2_UpdateGamepadButton(bd, io, ImGuiKey_GamepadBack,        SDL_CONTROLLER_BUTTON_BACK);
+     ImGui_ImplSDL2_UpdateGamepadButton(bd, io, ImGuiKey_GamepadFaceLeft,    SDL_CONTROLLER_BUTTON_X);              // Xbox X, PS Square
+-    ImGui_ImplSDL2_UpdateGamepadButton(bd, io, ImGuiKey_GamepadFaceRight,   SDL_CONTROLLER_BUTTON_B);              // Xbox B, PS Circle
++    ImGui_ImplSDL2_LakeTrio_UpdateBoundFaceButtons(bd, io);
+     ImGui_ImplSDL2_UpdateGamepadButton(bd, io, ImGuiKey_GamepadFaceUp,      SDL_CONTROLLER_BUTTON_Y);              // Xbox Y, PS Triangle
+-    ImGui_ImplSDL2_UpdateGamepadButton(bd, io, ImGuiKey_GamepadFaceDown,    SDL_CONTROLLER_BUTTON_A);              // Xbox A, PS Cross
+     ImGui_ImplSDL2_UpdateGamepadButton(bd, io, ImGuiKey_GamepadDpadLeft,    SDL_CONTROLLER_BUTTON_DPAD_LEFT);
