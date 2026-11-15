@@ -3,6 +3,8 @@
 #include "simulator/gui.h"
 #include <stdbool.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <stdarg.h>
 
 #include "app_menu_actions.h"
 
@@ -56,6 +58,69 @@ int SIM_GUI_Prj_OverlayIsOpen(void)
     return DashboardEnabled() && s_menuOpen;
 }
 
+// Write shortcut diagnostics only when explicitly requested. For Gaming Mode,
+// set LAKE_TRIO_SHORTCUT_LOG to a writable path in Steam launch options.
+static void DashboardShortcutLog(const char *format, ...)
+{
+    const char *path = getenv("LAKE_TRIO_SHORTCUT_LOG");
+    if (!path || !*path) return;
+    FILE *file = fopen(path, "a");
+    if (!file) return;
+    va_list args;
+    va_start(args, format);
+    vfprintf(file, format, args);
+    va_end(args);
+    fclose(file);
+}
+
+// SDL_JOYBUTTON events carry device-specific button numbers. Ask SDL's
+// GameController mapping which raw buttons correspond to L3 and R3; an Xbox
+// controller, for example, need not use the numbers saved in game.ini.
+// The saved bindings remain the fallback for generic (unmapped) joysticks.
+static bool DashboardMappedStickButtons(SDL_JoystickID instance, int *l3, int *r3)
+{
+    for (int i = 0; i < SDL_NumJoysticks(); ++i) {
+        if (SDL_JoystickGetDeviceInstanceID(i) != instance) continue;
+        if (!SDL_IsGameController(i)) return false;
+        SDL_GameController *pad = SDL_GameControllerOpen(i);
+        if (!pad) return false;
+        SDL_GameControllerButtonBind left = SDL_GameControllerGetBindForButton(pad, SDL_CONTROLLER_BUTTON_LEFTSTICK);
+        SDL_GameControllerButtonBind right = SDL_GameControllerGetBindForButton(pad, SDL_CONTROLLER_BUTTON_RIGHTSTICK);
+        SDL_GameControllerClose(pad);
+        if (left.bindType != SDL_CONTROLLER_BINDTYPE_BUTTON || right.bindType != SDL_CONTROLLER_BINDTYPE_BUTTON
+            || left.value.button == right.value.button) return false;
+        *l3 = left.value.button;
+        *r3 = right.value.button;
+        return true;
+    }
+    return false;
+}
+
+// Both normalized controller events and raw joystick events use the same
+// latched state machine. This prevents a single chord from toggling twice when
+// SDL emits both event types for the same physical input.
+static int DashboardStickEvent(SDL_JoystickID instance, int button, int l3, int r3, bool pressed)
+{
+    if (button != l3 && button != r3) return 0;
+    if (s_shortcutDevice != instance) {
+        s_shortcutDevice = instance;
+        s_l3Held = false;
+        s_r3Held = false;
+        s_comboLatched = false;
+    }
+    if (button == l3) s_l3Held = pressed;
+    if (button == r3) s_r3Held = pressed;
+    if (!pressed && !s_l3Held && !s_r3Held) s_comboLatched = false;
+    if (s_l3Held && s_r3Held && !s_comboLatched) {
+        s_comboLatched = true;
+        s_menuOpen = !s_menuOpen;
+        if (!s_menuOpen) GUI_PadCancelCapture();
+        DashboardShortcutLog("dashboard %s via L3+R3 (device=%d)\n", s_menuOpen ? "open" : "closed", (int)instance);
+        return 1;
+    }
+    return 0;
+}
+
 // Called before the simulator's existing GUI key/joystick dispatcher. F1 is
 // already the default GUIKey in game.ini: consume it here so that one press
 // cannot also toggle the legacy in-window menubar.
@@ -71,34 +136,28 @@ int SIM_GUI_Prj_OverlayHandleEvent(const SDL_Event *event)
             return 1;
         }
     }
-
-    // Match the joystick mapping used by the simulator rather than assuming
-    // the SDL_GameController button numbers match the user's Steam Input map.
     if (event->type == SDL_JOYBUTTONDOWN || event->type == SDL_JOYBUTTONUP) {
         const SIM_config_type *config = SIM_GetConfigPtr();
         int l3 = config->padSettings.l3JoyKey;
         int r3 = config->padSettings.r3JoyKey;
+        const bool mapped = DashboardMappedStickButtons(event->jbutton.which, &l3, &r3);
+        DashboardShortcutLog("joystick %s device=%d button=%u L3=%d R3=%d source=%s\n",
+            event->type == SDL_JOYBUTTONDOWN ? "down" : "up", (int)event->jbutton.which,
+            (unsigned)event->jbutton.button, l3, r3, mapped ? "SDL-map" : "game.ini");
         if (l3 < 0 || r3 < 0 || l3 == r3 || l3 > 255 || r3 > 255) return 0;
-        const int button = event->jbutton.button;
-        if (button != l3 && button != r3) return 0;
-        if (s_shortcutDevice != event->jbutton.which) {
-            s_shortcutDevice = event->jbutton.which;
-            s_l3Held = false;
-            s_r3Held = false;
-            s_comboLatched = false;
-        }
-        const bool pressed = event->type == SDL_JOYBUTTONDOWN;
-        if (button == l3) s_l3Held = pressed;
-        if (button == r3) s_r3Held = pressed;
-        if (!pressed && !s_l3Held && !s_r3Held) s_comboLatched = false;
-        if (s_l3Held && s_r3Held && !s_comboLatched) {
-            s_comboLatched = true;
-            s_menuOpen = !s_menuOpen;
-            if (!s_menuOpen) GUI_PadCancelCapture();
-            return 1;
-        }
+        return DashboardStickEvent(event->jbutton.which, event->jbutton.button, l3, r3,
+            event->type == SDL_JOYBUTTONDOWN);
     }
-    if (event->type == SDL_JOYDEVICEREMOVED && event->jdevice.which == s_shortcutDevice) {
+    if (event->type == SDL_CONTROLLERBUTTONDOWN || event->type == SDL_CONTROLLERBUTTONUP) {
+        DashboardShortcutLog("controller %s device=%d button=%u (SDL L3=%d R3=%d)\n",
+            event->type == SDL_CONTROLLERBUTTONDOWN ? "down" : "up", (int)event->cbutton.which,
+            (unsigned)event->cbutton.button, SDL_CONTROLLER_BUTTON_LEFTSTICK, SDL_CONTROLLER_BUTTON_RIGHTSTICK);
+        return DashboardStickEvent(event->cbutton.which, event->cbutton.button,
+            SDL_CONTROLLER_BUTTON_LEFTSTICK, SDL_CONTROLLER_BUTTON_RIGHTSTICK,
+            event->type == SDL_CONTROLLERBUTTONDOWN);
+    }
+    if ((event->type == SDL_JOYDEVICEREMOVED && event->jdevice.which == s_shortcutDevice)
+        || (event->type == SDL_CONTROLLERDEVICEREMOVED && event->cdevice.which == s_shortcutDevice)) {
         s_shortcutDevice = -1;
         s_l3Held = s_r3Held = s_comboLatched = false;
     }
