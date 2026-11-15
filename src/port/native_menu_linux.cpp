@@ -1,14 +1,15 @@
 // Qt owns the native menubar and shell; SDL keeps the game surface and input.
 // Wayland interop follows SDL's documented external wl_display/wl_surface API.
 #include <SDL2/SDL.h>
+#include "app_menu_actions.h"
 #include <QApplication>
 #include <QCloseEvent>
 #include <QIcon>
 #include <QKeyEvent>
+#include <QKeySequence>
 #include <QMouseEvent>
 #include <QWidget>
 #include <QMainWindow>
-#include <QMenuBar>
 #include <QScreen>
 #include <QSurfaceFormat>
 #include <QWindow>
@@ -27,7 +28,6 @@ QMainWindow *shell;
 QWindow *viewport;
 QWidget *viewportContainer;
 SDL_Window *gameWindow;
-QAction *importAction;
 int pendingAction;
 unsigned windowedMode = 2;
 
@@ -60,14 +60,6 @@ bool loadSDL3()
 }
 
 class GameShell : public QMainWindow {
-    void changeEvent(QEvent *event) override
-    {
-        QMainWindow::changeEvent(event);
-        if (event->type() == QEvent::WindowStateChange) {
-            menuBar()->setVisible(!isFullScreen());
-        }
-    }
-
     void closeEvent(QCloseEvent *event) override
     {
         // Let the game shut down its render threads before Qt destroys surfaces.
@@ -83,11 +75,17 @@ class WindowKeys : public QObject {
     {
         if (!shell || (event->type() != QEvent::KeyPress && event->type() != QEvent::KeyRelease)) return false;
         auto *key = static_cast<QKeyEvent *>(event);
+        // Retain Ctrl+O from the retired Qt File menu without drawing a menu bar.
+        if (key->matches(QKeySequence::Open)) {
+            if (event->type() == QEvent::KeyPress && !key->isAutoRepeat())
+                PlatformMenu_RequestAction(LAKE_TRIO_MENU_IMPORT_ROM);
+            return true;
+        }
         if (key->key() != Qt::Key_F11 || key->modifiers() != Qt::NoModifier) return false;
         if (event->type() == QEvent::KeyPress && !key->isAutoRepeat()
             && SIM_GetWindowSizeMode && SIM_RequestWindowSizeMode) {
             unsigned mode = SIM_GetWindowSizeMode();
-            if (mode >= 1 && mode <= 4) windowedMode = mode;
+            if ((mode >= 1 && mode <= 4) || mode == 6) windowedMode = mode;
             SIM_RequestWindowSizeMode(mode == 5 ? windowedMode : 5);
         }
         return true;
@@ -251,6 +249,12 @@ public:
 GameMouseBridge gameMouseBridge;
 }
 
+extern "C" void PlatformMenu_RequestAction(int action)
+{
+    if (action == LAKE_TRIO_MENU_IMPORT_ROM || action == LAKE_TRIO_MENU_CONFIGURE_CONTROLS)
+        pendingAction = action;
+}
+
 extern "C" void PlatformWindow_Init()
 {
     static int argc = 1;
@@ -265,7 +269,7 @@ extern "C" void PlatformWindow_Init()
     // GLX independently chooses a framebuffer config and can fail with BadMatch.
     qputenv("QT_XCB_GL_INTEGRATION", "xcb_egl");
     application = new QApplication(argc, argv);
-    application->setApplicationName("pokeplatinum");
+    application->setApplicationName("Lake Trio");
     application->setDesktopFileName("pokeplatinum");
     application->setWindowIcon(QIcon("icon.png"));
     application->setQuitOnLastWindowClosed(false);
@@ -295,16 +299,9 @@ extern "C" void PlatformWindow_Init()
 extern "C" SDL_Window *PlatformWindow_Create(const char *title, int width, int height, int monitor, int fullscreen)
 {
     shell = new GameShell;
-    shell->setWindowTitle(QString::fromUtf8(title));
-    // Keep File and Input in the application window, even with a global-menu applet.
-    shell->menuBar()->setNativeMenuBar(false);
-    auto *file = shell->menuBar()->addMenu("&File");
-    importAction = file->addAction("Import ROM…");
-    importAction->setShortcut(QKeySequence::Open);
-    QObject::connect(importAction, &QAction::triggered, [] { pendingAction = 1; });
-    auto *input = shell->menuBar()->addMenu("&Input");
-    auto *controls = input->addAction("Configure Controls…");
-    QObject::connect(controls, &QAction::triggered, [] { pendingAction = 2; });
+    // The native title bar remains; only the legacy File/Input strip is removed.
+    shell->setWindowTitle(QStringLiteral("Lake Trio"));
+    (void)title;
     viewport = new QWindow;
     viewport->setSurfaceType(QSurface::OpenGLSurface);
     // The X11 visual is chosen when Qt creates this window. Match the game's
@@ -325,10 +322,9 @@ extern "C" SDL_Window *PlatformWindow_Create(const char *title, int width, int h
     container->installEventFilter(&gameMouseBridge);
     container->setFocusPolicy(Qt::StrongFocus);
     shell->setCentralWidget(container);
-    shell->resize(width, height + shell->menuBar()->sizeHint().height());
+    shell->resize(width, height);
     auto screens = application->screens();
     if (monitor >= 0 && monitor < screens.size()) shell->setScreen(screens[monitor]);
-    shell->menuBar()->setVisible(!fullscreen);
     if (fullscreen) shell->showFullScreen(); else shell->show();
     application->processEvents();
     viewport->create();
@@ -346,7 +342,7 @@ extern "C" SDL_Window *PlatformWindow_Create(const char *title, int width, int h
         gameWindow = SDL_CreateWindowFrom(reinterpret_cast<void *>(viewport->winId()));
     }
     container->setFocus();
-    fprintf(stderr, "[native-menu] Qt %s: File > Import ROM; Input > Configure Controls; Qt->SDL mouse bridge %s\n",
+    fprintf(stderr, "[lake-trio] Qt %s viewport; Qt->SDL mouse bridge %s\n",
             qPrintable(application->platformName()), MouseBridgeEnabled() ? "enabled" : "disabled");
     return gameWindow;
 }
@@ -354,7 +350,6 @@ extern "C" SDL_Window *PlatformWindow_Create(const char *title, int width, int h
 extern "C" int PlatformMenu_Update(int canImport)
 {
     if (!shell) return 0;
-    importAction->setEnabled(canImport != 0);
     // Enqueue the previous pump's button releases only after an SDL frame has
     // had the opportunity to observe the matching button presses.
     gameMouseBridge.flushReleases();
@@ -368,7 +363,7 @@ extern "C" int PlatformMenu_Update(int canImport)
     }
     int action = pendingAction;
     pendingAction = 0;
-    return action;
+    return (action == LAKE_TRIO_MENU_IMPORT_ROM && !canImport) ? LAKE_TRIO_MENU_NONE : action;
 }
 
 extern "C" int PlatformWindow_SetFullscreen(SDL_Window *window, unsigned flags)
@@ -376,9 +371,8 @@ extern "C" int PlatformWindow_SetFullscreen(SDL_Window *window, unsigned flags)
     if (window != gameWindow) return SDL_SetWindowFullscreen(window, flags);
     if (flags && SIM_GetWindowSizeMode) {
         unsigned mode = SIM_GetWindowSizeMode();
-        if (mode >= 1 && mode <= 4) windowedMode = mode;
+        if ((mode >= 1 && mode <= 4) || mode == 6) windowedMode = mode;
     }
-    shell->menuBar()->setVisible(flags == 0);
     if (flags) shell->showFullScreen(); else shell->showNormal();
     return 0;
 }
@@ -386,7 +380,7 @@ extern "C" int PlatformWindow_SetFullscreen(SDL_Window *window, unsigned flags)
 extern "C" void PlatformWindow_SetSize(SDL_Window *window, int width, int height)
 {
     if (window != gameWindow) { SDL_SetWindowSize(window, width, height); return; }
-    shell->resize(width, height + shell->menuBar()->sizeHint().height());
+    shell->resize(width, height);
 }
 
 extern "C" void PlatformWindow_SetPosition(SDL_Window *window, int x, int y)

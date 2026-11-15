@@ -1,0 +1,28 @@
+diff --git a/libraries/sim/src/gui/gui.c b/libraries/sim/src/gui/gui.c
+index 6990837..2d82445 100644
+--- a/libraries/sim/src/gui/gui.c
++++ b/libraries/sim/src/gui/gui.c
+@@ -138,1 +138,4 @@ extern int PlatformMenu_Update(int) __attribute__((weak));
++// The application supplies the visible toolbar without owning the SDL renderer.
++void SIM_GUI_Prj_Toolbar(int canImport) __attribute__((weak));
++
+ static void DrawSimulatorMenuBar(void)
+@@ -146,2 +149,3 @@ static void DrawSimulatorMenuBar(void)
+         if (action == 2) s_showWindowPad = true;
++        if (SIM_GUI_Prj_Toolbar) SIM_GUI_Prj_Toolbar(canImport);
+         return;
+@@ -309,3 +313,13 @@ bool SIM_GUI_ProcessEvent(SDL_Event *aEvent)
+     if (!SIM_GUI_State && !IsMenuBarVisible()) {
+-        return false;
++        if (!SIM_GUI_Prj_Toolbar) return false;
++        // The small overlay should handle mouse clicks, not steal gameplay keys.
++        const bool mouseEvent = aEvent->type == SDL_MOUSEMOTION
++            || aEvent->type == SDL_MOUSEBUTTONDOWN
++            || aEvent->type == SDL_MOUSEBUTTONUP
++            || aEvent->type == SDL_MOUSEWHEEL;
++        if (!mouseEvent) return false;
++        ImGui_ImplSDL2_ProcessEvent(aEvent);
++        const bool click = aEvent->type == SDL_MOUSEBUTTONDOWN
++            || aEvent->type == SDL_MOUSEBUTTONUP;
++        return click && igGetIO_ContextPtr(SIM_GUI_ig_context)->WantCaptureMouse;
+     }

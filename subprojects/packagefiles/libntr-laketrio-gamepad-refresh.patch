@@ -1,0 +1,47 @@
+diff --git a/libraries/sim/cimgui/imgui/backends/imgui_impl_sdl2.cpp b/libraries/sim/cimgui/imgui/backends/imgui_impl_sdl2.cpp
+--- a/libraries/sim/cimgui/imgui/backends/imgui_impl_sdl2.cpp
++++ b/libraries/sim/cimgui/imgui/backends/imgui_impl_sdl2.cpp
+@@ -155,2 +155,3 @@
+     ImGui_ImplSDL2_GamepadMode    GamepadMode;
++    int                           LastJoystickCount; // Last seen SDL device count.
+     bool                          WantUpdateGamepadsList;
+@@ -531,3 +532,6 @@
+     // Gamepad handling
+-    bd->GamepadMode = ImGui_ImplSDL2_GamepadMode_AutoFirst;
++    // The game may also be controlled by an external pad connected after launch.
++    // Merge all active mapped pads rather than locking to the first device.
++    bd->GamepadMode = ImGui_ImplSDL2_GamepadMode_AutoAll;
++    bd->LastJoystickCount = -1;
+     bd->WantUpdateGamepadsList = true;
+@@ -779,6 +783,23 @@
++    // Lake-Trio hot-plug fallback: controller events may be missed while the
++    // dashboard is hidden. Poll for a changed device count or stale handles
++    // before reading navigation buttons. An unplug/replug may keep the same
++    // device count, so checking only SDL_NumJoysticks() is not enough.
++    if (bd->GamepadMode != ImGui_ImplSDL2_GamepadMode_Manual)
++    {
++        const int count = SDL_NumJoysticks();
++        if (count >= 0 && count != bd->LastJoystickCount)
++            bd->WantUpdateGamepadsList = true;
++        for (SDL_GameController* gamepad : bd->Gamepads)
++            if (!SDL_GameControllerGetAttached(gamepad))
++            {
++                bd->WantUpdateGamepadsList = true;
++                break;
++            }
++    }
+     // Update list of controller(s) to use
+     if (bd->WantUpdateGamepadsList && bd->GamepadMode != ImGui_ImplSDL2_GamepadMode_Manual)
+     {
+         ImGui_ImplSDL2_CloseGamepads();
+         int joystick_count = SDL_NumJoysticks();
++        bd->LastJoystickCount = joystick_count;
+         for (int n = 0; n < joystick_count; n++)
+diff --git a/libraries/sim/src/gui/gui.c b/libraries/sim/src/gui/gui.c
+--- a/libraries/sim/src/gui/gui.c
++++ b/libraries/sim/src/gui/gui.c
+@@ -178,3 +178,3 @@
+     igPushTextWrapPos(left + width);
+-    igTextWrapped("%s", s_importStatus ? s_importText : "Choose File > Import ROM to select your Nintendo DS ROM and start playing.");
++    igTextWrapped("%s", s_importStatus ? s_importText : "Press F1 or L3+R3 and import ROM to play.");
+     igPopTextWrapPos();

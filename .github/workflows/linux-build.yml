@@ -1,7 +1,12 @@
-name: Steam Deck mouse fix - manual AppImage build
+name: Linux x86_64 AppImage
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
 
 permissions:
   contents: read
@@ -9,7 +14,7 @@ permissions:
 jobs:
   appimage:
     name: Build Linux x86_64 AppImage
-    # Avoid ubuntu-latest moving to a different OS during this experiment.
+    # Pin the host OS so upstream runner-image migrations do not alter the build unexpectedly.
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     container:
@@ -31,6 +36,17 @@ jobs:
         uses: actions/checkout@v5
         with:
           persist-credentials: false
+
+      # checkout registers safety for its own execution, but the Arch
+      # container runs later Git commands with a different HOME/user context.
+      # Trust only this CI checkout (not every repository on the runner).
+      - name: Trust checked-out repository inside Arch Linux container
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          echo "Git ownership preflight for: $GITHUB_WORKSPACE"
+          git -C "$GITHUB_WORKSPACE" log -1 --format='%h %s'
 
       - name: Show toolchain and plugin availability
         shell: bash
@@ -62,8 +78,8 @@ jobs:
               exit 1
             fi
             # libntr uses find_library('enet'); test that exact -lenet lookup.
-            printf 'int main(void) { return 0; }\n' | gcc -x c - -o /tmp/pokeplatinum-enet-link-check -lenet
-            rm -f /tmp/pokeplatinum-enet-link-check
+            printf 'int main(void) { return 0; }\n' | gcc -x c - -o /tmp/lake-trio-enet-link-check -lenet
+            rm -f /tmp/lake-trio-enet-link-check
             echo 'ENet compiler/linker preflight passed.'
             printf '\nQt tools and plugin locations:\n'
             if ! command -v qtpaths6 >/dev/null 2>&1; then
@@ -104,8 +120,8 @@ jobs:
             echo '::group::Potential errors (line-numbered)'
             grep -nEi '(^|[[:space:]])(error:|fatal error:|FAILED:|ninja:.*error|make: \*\*\*|Traceback|No such file|not found|permission denied|subproject.*failed)' build-linux.log | tail -n 90 || true
             echo '::endgroup::'
-            echo "::error title=make linux failed::Exit code ${build_status}. Download pokeplatinum-linux-build-log from this run's Artifacts section for the original compiler error."
-            printf '## Linux AppImage build failed\n\nExit code: `%s`. Download the `pokeplatinum-linux-build-log` artifact and inspect `build-linux.log` for the first actual error.\n' "${build_status}" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=make linux failed::Exit code ${build_status}. Download Lake-Trio-Linux-build-logs from this run's Artifacts section for the original compiler error."
+            printf '## Linux AppImage build failed\n\nExit code: `%s`. Download the `Lake-Trio-Linux-build-logs` artifact and inspect `build-linux.log` for the first actual error.\n' "${build_status}" >> "$GITHUB_STEP_SUMMARY"
             exit "${build_status}"
           fi
           if [[ ! -s build_linux/pokeplatinum.AppImage ]]; then
@@ -117,7 +133,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: pokeplatinum-linux-build-log
+          name: Lake-Trio-Linux-build-logs
           path: |
             build-linux.log
             .build/build_linux/meson-logs/meson-log.txt
@@ -129,7 +145,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v6
         with:
-          name: pokeplatinum-steamdeck-mouse-test
+          name: Lake-Trio-Linux-x86_64
           path: build_linux/pokeplatinum.AppImage
           if-no-files-found: error
           retention-days: 7

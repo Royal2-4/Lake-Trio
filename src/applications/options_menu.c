@@ -1249,7 +1249,7 @@ static const int sNumChoicesPerEntry[MAX_ENTRIES] = {
     20,
 #ifdef SDK_PORT
     11,
-    5,
+    6,
     3,
     2,
     4,
@@ -1321,7 +1321,7 @@ static void LoadAllEntryChoices(OptionsMenuData *menuData)
                 menuData->entries.asArray[i].choices[j] = Mods_StringFromUtf8(value, menuData->heapID);
             } else if (i == ENTRY_WINDOW_SIZE) {
                 static const char *const windowSizeValues[] = {
-                    "x1", "x2", "x3", "x4", "FS",
+                    "x1", "x2", "x3", "x4", "FS", "Custom",
                 };
                 menuData->entries.asArray[i].choices[j] = Mods_StringFromUtf8(windowSizeValues[j], menuData->heapID);
             } else if (i == ENTRY_SKIP_INTRO) {

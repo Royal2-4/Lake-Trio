@@ -1,0 +1,91 @@
+diff --git a/libraries/sim/src/sim_audio.cpp b/libraries/sim/src/sim_audio.cpp
+--- a/libraries/sim/src/sim_audio.cpp
++++ b/libraries/sim/src/sim_audio.cpp
+@@ -4,2 +4,3 @@
+ #include <simulator/config/sim_config.h>
++#include <atomic>
+ #include <SDL2/SDL.h>
+@@ -85,3 +86,6 @@
+     s_requestedAudioSpec.callback = SIM_Audio_Callback;
+-    if(SDL_OpenAudio(&s_requestedAudioSpec, NULL) < 0) {
++    // Use the handle-based SDL2 API so output routing can be changed live.
++    s_audioDevice = SDL_OpenAudioDevice(NULL, 0, &s_requestedAudioSpec,
++        &s_actualAudioSpec, 0);
++    if (!s_audioDevice) {
+         printf("SDL Error %s\n", SDL_GetError());
+@@ -89,3 +93,60 @@
+     }
+-    SDL_PauseAudio(0);
++    SDL_PauseAudioDevice(s_audioDevice, 0);
++}
++// Own the selected name; SDL's enumeration pointers may change on hotplug.
++static char *s_selectedOutputName;
++// Updated from the UI thread; sampled without locking in the audio callback.
++static std::atomic<int> s_masterVolumePercent(100);
++
++extern "C" const char *LakeTrio_Audio_GetOutputDevice(void)
++{
++    return s_selectedOutputName ? s_selectedOutputName : "";
++}
++extern "C" int LakeTrio_Audio_GetVolume(void)
++{
++    return s_masterVolumePercent.load(std::memory_order_relaxed);
++}
++extern "C" void LakeTrio_Audio_SetVolume(int percent)
++{
++    if (percent < 0) percent = 0;
++    if (percent > 200) percent = 200;
++    s_masterVolumePercent.store(percent, std::memory_order_relaxed);
++}
++extern "C" int LakeTrio_Audio_IsPlaying(void)
++{
++    return s_audioDevice && SDL_GetAudioDeviceStatus(s_audioDevice) == SDL_AUDIO_PLAYING;
++}
++// Pause and lock the old callback first. Two callbacks must never run
++// NitroComposer simultaneously, since they mutate the same emulator state.
++extern "C" int LakeTrio_Audio_SelectOutputDevice(const char *name)
++{
++    if (!s_requestedAudioSpec.callback) return 0;
++    char *copy = (name && name[0]) ? SDL_strdup(name) : NULL;
++    if (name && name[0] && !copy) return 0;
++    SDL_AudioDeviceID old = s_audioDevice;
++    if (old) {
++        SDL_PauseAudioDevice(old, 1);
++        SDL_LockAudioDevice(old);
++    }
++    SDL_AudioDeviceID next = SDL_OpenAudioDevice(name && name[0] ? name : NULL,
++        0, &s_requestedAudioSpec, NULL, 0);
++    if (!next) {
++        if (old) {
++            SDL_UnlockAudioDevice(old);
++            SDL_PauseAudioDevice(old, 0);
++        }
++        SDL_free(copy);
++        return 0;
++    }
++    // The replacement starts paused by SDL default. Retire the old device
++    // before resuming the new one so only one callback can own emulation state.
++    if (old) {
++        SDL_UnlockAudioDevice(old);
++        SDL_CloseAudioDevice(old);
++    }
++    s_audioDevice = next;
++    SDL_free(s_selectedOutputName);
++    s_selectedOutputName = copy;
++    SDL_PauseAudioDevice(next, 0);
++    return 1;
+ }
+@@ -158,2 +219,13 @@
+     blip_read_samples(s_BlipRight, tempbuf+1, avail, TRUE);
++    // The callback is the sole writer of PCM. Saturation avoids wraparound
++    // at gains above 100%, preserving normal output at exactly 100%.
++    const int gain = s_masterVolumePercent.load(std::memory_order_relaxed);
++    if (gain != 100) {
++        for (int i = 0; i < avail * 2; ++i) {
++            int sample = ((int)tempbuf[i] * gain) / 100;
++            if (sample > 32767) sample = 32767;
++            if (sample < -32768) sample = -32768;
++            tempbuf[i] = (s16)sample;
++        }
++    }
+     #ifdef SDK_TRACY_ENABLE
