@@ -1,5 +1,5 @@
-# Lake-Trio: additive Windows build for PR checks and manual runs. Does not modify Linux CI.
-name: Windows x86_64 (UCRT64) - PR and manual build
+# Lake-Trio Windows x86_64 build: PR checks and manual runs.
+name: Windows x86_64 ZIP
 
 on:
   workflow_dispatch:
