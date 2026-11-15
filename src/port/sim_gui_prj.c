@@ -16,6 +16,7 @@
 // The existing libntr input editor, made embeddable by our panel patch.
 extern void GUI_PadDrawBindings(void);
 extern void GUI_PadCancelCapture(void);
+extern bool GUI_PadBlocksNavigation(void);
 
 static ImVec2 s_btnSize = {100, 20};
 
@@ -45,6 +46,8 @@ static SDL_JoystickID s_shortcutDevice = -1;
 static bool s_l3Held;
 static bool s_r3Held;
 static bool s_comboLatched;
+static bool s_backHeld;
+static bool s_focusNavOnOpen;
 static int s_lastWindowedMode = 2;
 
 static bool DashboardEnabled(void)
@@ -56,6 +59,60 @@ static bool DashboardEnabled(void)
 int SIM_GUI_Prj_OverlayIsOpen(void)
 {
     return DashboardEnabled() && s_menuOpen;
+}
+
+// Keep native desktop and game input untouched when the dashboard is closed.
+// ImGui's SDL2 backend already understands A, D-pad, and left-stick navigation;
+// we enable it only while the dashboard is visible and not capturing bindings.
+static void DashboardSetOpen(bool open)
+{
+    s_menuOpen = open;
+    if (open) {
+        s_focusNavOnOpen = true;
+    } else {
+        GUI_PadCancelCapture();
+        s_backHeld = false;
+    }
+}
+
+// A single B press returns to Game, then closes the dashboard. ImGui handles
+// B itself when a dropdown/popup is open, and binding capture takes priority.
+static int DashboardBackEvent(bool pressed)
+{
+    if (!pressed) {
+        s_backHeld = false;
+        return 0;
+    }
+    if (!s_menuOpen || GUI_PadBlocksNavigation()) return 0;
+    if (s_backHeld) return 1; // Dedupe SDL joystick + controller events.
+    if (igIsPopupOpen_Str(NULL, ImGuiPopupFlags_AnyPopup)) return 0;
+    s_backHeld = true;
+    if (s_menuPage != 0) {
+        GUI_PadCancelCapture();
+        s_menuPage = 0;
+        s_focusNavOnOpen = true;
+    } else {
+        DashboardSetOpen(false);
+    }
+    return 1;
+}
+
+// A standardized controller may also send raw joystick events. Map physical
+// B to its raw index, falling back to the existing game.ini assignment.
+static int DashboardRawBButton(SDL_JoystickID instance)
+{
+    for (int i = 0; i < SDL_NumJoysticks(); ++i) {
+        if (SDL_JoystickGetDeviceInstanceID(i) != instance) continue;
+        if (!SDL_IsGameController(i)) break;
+        SDL_GameController *pad = SDL_GameControllerOpen(i);
+        if (!pad) break;
+        SDL_GameControllerButtonBind b = SDL_GameControllerGetBindForButton(pad, SDL_CONTROLLER_BUTTON_B);
+        SDL_GameControllerClose(pad);
+        if (b.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON) return b.value.button;
+        break;
+    }
+    const int fallback = SIM_GetConfigPtr()->padSettings.bJoyKey;
+    return fallback >= 0 && fallback < 256 ? fallback : -1;
 }
 
 // Write shortcut diagnostics only when explicitly requested. For Gaming Mode,
@@ -113,8 +170,7 @@ static int DashboardStickEvent(SDL_JoystickID instance, int button, int l3, int 
     if (!pressed && !s_l3Held && !s_r3Held) s_comboLatched = false;
     if (s_l3Held && s_r3Held && !s_comboLatched) {
         s_comboLatched = true;
-        s_menuOpen = !s_menuOpen;
-        if (!s_menuOpen) GUI_PadCancelCapture();
+        DashboardSetOpen(!s_menuOpen);
         DashboardShortcutLog("dashboard %s via L3+R3 (device=%d)\n", s_menuOpen ? "open" : "closed", (int)instance);
         return 1;
     }
@@ -130,13 +186,16 @@ int SIM_GUI_Prj_OverlayHandleEvent(const SDL_Event *event)
     if (event->type == SDL_KEYDOWN || event->type == SDL_KEYUP) {
         if (event->key.keysym.sym == SDLK_F1) {
             if (event->type == SDL_KEYDOWN && !event->key.repeat) {
-                s_menuOpen = !s_menuOpen;
-                if (!s_menuOpen) GUI_PadCancelCapture();
+                DashboardSetOpen(!s_menuOpen);
             }
             return 1;
         }
     }
     if (event->type == SDL_JOYBUTTONDOWN || event->type == SDL_JOYBUTTONUP) {
+        if (GUI_PadBlocksNavigation()) {
+            s_l3Held = s_r3Held = s_comboLatched = s_backHeld = false;
+            return 0;
+        }
         const SIM_config_type *config = SIM_GetConfigPtr();
         int l3 = config->padSettings.l3JoyKey;
         int r3 = config->padSettings.r3JoyKey;
@@ -145,21 +204,36 @@ int SIM_GUI_Prj_OverlayHandleEvent(const SDL_Event *event)
             event->type == SDL_JOYBUTTONDOWN ? "down" : "up", (int)event->jbutton.which,
             (unsigned)event->jbutton.button, l3, r3, mapped ? "SDL-map" : "game.ini");
         if (l3 < 0 || r3 < 0 || l3 == r3 || l3 > 255 || r3 > 255) return 0;
-        return DashboardStickEvent(event->jbutton.which, event->jbutton.button, l3, r3,
+        const int stickToggle = DashboardStickEvent(event->jbutton.which, event->jbutton.button, l3, r3,
             event->type == SDL_JOYBUTTONDOWN);
+        if (stickToggle) return 1;
+        if (s_menuOpen && event->jbutton.button != l3 && event->jbutton.button != r3
+            && event->jbutton.button == DashboardRawBButton(event->jbutton.which)) {
+            return DashboardBackEvent(event->type == SDL_JOYBUTTONDOWN);
+        }
+        return 0;
     }
     if (event->type == SDL_CONTROLLERBUTTONDOWN || event->type == SDL_CONTROLLERBUTTONUP) {
+        if (GUI_PadBlocksNavigation()) {
+            s_l3Held = s_r3Held = s_comboLatched = s_backHeld = false;
+            return 0;
+        }
         DashboardShortcutLog("controller %s device=%d button=%u (SDL L3=%d R3=%d)\n",
             event->type == SDL_CONTROLLERBUTTONDOWN ? "down" : "up", (int)event->cbutton.which,
             (unsigned)event->cbutton.button, SDL_CONTROLLER_BUTTON_LEFTSTICK, SDL_CONTROLLER_BUTTON_RIGHTSTICK);
-        return DashboardStickEvent(event->cbutton.which, event->cbutton.button,
+        const int stickToggle = DashboardStickEvent(event->cbutton.which, event->cbutton.button,
             SDL_CONTROLLER_BUTTON_LEFTSTICK, SDL_CONTROLLER_BUTTON_RIGHTSTICK,
             event->type == SDL_CONTROLLERBUTTONDOWN);
+        if (stickToggle) return 1;
+        if (event->cbutton.button == SDL_CONTROLLER_BUTTON_B && s_menuOpen) {
+            return DashboardBackEvent(event->type == SDL_CONTROLLERBUTTONDOWN);
+        }
+        return 0;
     }
     if ((event->type == SDL_JOYDEVICEREMOVED && event->jdevice.which == s_shortcutDevice)
         || (event->type == SDL_CONTROLLERDEVICEREMOVED && event->cdevice.which == s_shortcutDevice)) {
         s_shortcutDevice = -1;
-        s_l3Held = s_r3Held = s_comboLatched = false;
+        s_l3Held = s_r3Held = s_comboLatched = s_backHeld = false;
     }
     return 0;
 }
@@ -318,18 +392,71 @@ static void DashboardDisplaySettings(void)
         igTextWrapped("Unlimited FPS overrides VSync in the simulator.");
 }
 
+// Lake-Trio's dashboard-only palette. Exact requested colors:
+// background #212830, accent #F29EC4. The render frame itself remains opaque;
+// these style changes are popped before any other simulator UI is drawn.
+static void DashboardPushTheme(void)
+{
+    igPushStyleVar_Vec2(ImGuiStyleVar_WindowPadding, (ImVec2){ 20.0f, 20.0f });
+    igPushStyleVar_Float(ImGuiStyleVar_WindowRounding, 0.0f); // Full viewport.
+    igPushStyleVar_Float(ImGuiStyleVar_ChildRounding, 10.0f);
+    igPushStyleVar_Float(ImGuiStyleVar_FrameRounding, 8.0f);
+    igPushStyleVar_Float(ImGuiStyleVar_PopupRounding, 8.0f);
+    igPushStyleVar_Float(ImGuiStyleVar_ScrollbarRounding, 7.0f);
+    igPushStyleVar_Float(ImGuiStyleVar_GrabRounding, 6.0f);
+    igPushStyleColor_Vec4(ImGuiCol_Text, (ImVec4){ 0.95f, 0.96f, 0.98f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_TextDisabled, (ImVec4){ 0.70f, 0.74f, 0.79f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_WindowBg, (ImVec4){ 33/255.0f, 40/255.0f, 48/255.0f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_ChildBg, (ImVec4){ 42/255.0f, 51/255.0f, 61/255.0f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_PopupBg, (ImVec4){ 42/255.0f, 51/255.0f, 61/255.0f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_Border, (ImVec4){ 0.34f, 0.40f, 0.46f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_FrameBg, (ImVec4){ 0.23f, 0.28f, 0.33f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_FrameBgHovered, (ImVec4){ 0.34f, 0.31f, 0.38f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_FrameBgActive, (ImVec4){ 0.42f, 0.32f, 0.41f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_Button, (ImVec4){ 0.23f, 0.29f, 0.34f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_ButtonHovered, (ImVec4){ 0.44f, 0.31f, 0.40f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_ButtonActive, (ImVec4){ 0.58f, 0.38f, 0.49f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_Header, (ImVec4){ 0.40f, 0.30f, 0.38f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_HeaderHovered, (ImVec4){ 0.50f, 0.34f, 0.45f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_HeaderActive, (ImVec4){ 0.60f, 0.40f, 0.51f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_CheckMark, (ImVec4){ 242/255.0f, 158/255.0f, 196/255.0f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_SliderGrab, (ImVec4){ 242/255.0f, 158/255.0f, 196/255.0f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_SliderGrabActive, (ImVec4){ 1.0f, 0.77f, 0.88f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_NavCursor, (ImVec4){ 242/255.0f, 158/255.0f, 196/255.0f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_Separator, (ImVec4){ 0.32f, 0.38f, 0.44f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_ScrollbarBg, (ImVec4){ 33/255.0f, 40/255.0f, 48/255.0f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_ScrollbarGrab, (ImVec4){ 0.38f, 0.43f, 0.49f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_ScrollbarGrabHovered, (ImVec4){ 0.52f, 0.41f, 0.49f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_ScrollbarGrabActive, (ImVec4){ 0.65f, 0.48f, 0.57f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_TableHeaderBg, (ImVec4){ 0.26f, 0.32f, 0.37f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_TableRowBg, (ImVec4){ 0.18f, 0.22f, 0.27f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_TableRowBgAlt, (ImVec4){ 0.20f, 0.25f, 0.30f, 1.0f });
+}
+
+static void DashboardPopTheme(void)
+{
+    igPopStyleColor(27);
+    igPopStyleVar(7);
+}
+
 // Called once per ImGui frame by libntr after pending simulator requests have
 // been applied. Save on the following frame so game.ini receives new values.
 void SIM_GUI_Prj_Toolbar(int canImport)
 {
     if (!DashboardEnabled()) return;
+    // Enable Dear ImGui's existing SDL2 gamepad navigation while the overlay
+    // is visible. During input rebinding, the next button belongs to the editor.
+    ImGuiIO *io = igGetIO_ContextPtr(igGetCurrentContext());
+    if (s_menuOpen && !GUI_PadBlocksNavigation())
+        io->ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+    else
+        io->ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
     if (s_saveConfigNextFrame) {
         SIM_Config_SaveGameConfigFile(SIM_GetConfigPtr());
         s_saveConfigNextFrame = false;
     }
     if (!s_menuOpen) return;
 
-    ImGuiIO *io = igGetIO_ContextPtr(igGetCurrentContext());
     const float width = io->DisplaySize.x;
     const float height = io->DisplaySize.y;
     // Independent child regions reset ImGui's own layout cursor for each
@@ -353,13 +480,8 @@ void SIM_GUI_Prj_Toolbar(int canImport)
         | ImGuiWindowFlags_NoResize;
     igSetNextWindowPos(origin, ImGuiCond_Always, origin);
     igSetNextWindowSize(size, ImGuiCond_Always);
-    igSetNextWindowBgAlpha(0.975f);
-    igPushStyleVar_Vec2(ImGuiStyleVar_WindowPadding, (ImVec2){ 20.0f, 20.0f });
-    igPushStyleVar_Float(ImGuiStyleVar_WindowRounding, 0.0f);
-    igPushStyleColor_Vec4(ImGuiCol_WindowBg, (ImVec4){ 0.047f, 0.065f, 0.110f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_Button, (ImVec4){ 0.13f, 0.22f, 0.34f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_ButtonHovered, (ImVec4){ 0.20f, 0.37f, 0.53f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_ButtonActive, (ImVec4){ 0.13f, 0.43f, 0.60f, 1.0f });
+    igSetNextWindowBgAlpha(1.0f);
+    DashboardPushTheme();
 
     if (igBegin("Lake-Trio##dashboard", NULL, flags)) {
         igTextUnformatted("Lake Trio", NULL);
@@ -370,8 +492,7 @@ void SIM_GUI_Prj_Toolbar(int canImport)
             igSameLine(0.0f, 20.0f);
         }
         if (igButton("Resume [F1]", (ImVec2){ 125.0f, 32.0f })) {
-            s_menuOpen = false;
-            GUI_PadCancelCapture();
+            DashboardSetOpen(false);
         }
         igSeparator();
 
@@ -385,10 +506,17 @@ void SIM_GUI_Prj_Toolbar(int canImport)
                 if (i > 0 && tabRow) igSameLine(0.0f, 8.0f);
                 const bool selected = i == s_menuPage;
                 if (selected) {
-                    igPushStyleColor_Vec4(ImGuiCol_Button, (ImVec4){ 0.20f, 0.37f, 0.55f, 1.0f });
+                    igPushStyleColor_Vec4(ImGuiCol_Button,
+                        (ImVec4){ 242/255.0f, 158/255.0f, 196/255.0f, 1.0f });
+                    igPushStyleColor_Vec4(ImGuiCol_Text,
+                        (ImVec4){ 33/255.0f, 40/255.0f, 48/255.0f, 1.0f });
+                }
+                if (s_focusNavOnOpen && selected) {
+                    igSetKeyboardFocusHere(0);
+                    s_focusNavOnOpen = false;
                 }
                 const bool clicked = igButton(labels[i], (ImVec2){ cellWidth, 38.0f });
-                if (selected) igPopStyleColor(1);
+                if (selected) igPopStyleColor(2);
                 if (clicked) {
                     if (s_menuPage == 2 && i != 2) GUI_PadCancelCapture();
                     s_menuPage = i;
@@ -407,7 +535,7 @@ void SIM_GUI_Prj_Toolbar(int canImport)
                     igTextWrapped("Import the ROM data needed by the existing game installation.");
                     if (igButton("Import", (ImVec2){ 170.0f, 38.0f }) && canImport) {
                         PlatformMenu_RequestAction(LAKE_TRIO_MENU_IMPORT_ROM);
-                        s_menuOpen = false;
+                        DashboardSetOpen(false);
                     }
                     if (!canImport) igTextUnformatted("Import is currently unavailable.", NULL);
                     break;
@@ -426,6 +554,5 @@ void SIM_GUI_Prj_Toolbar(int canImport)
         }
     }
     igEnd();
-    igPopStyleColor(4);
-    igPopStyleVar(2);
+    DashboardPopTheme();
 }
