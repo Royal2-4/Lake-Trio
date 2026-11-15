@@ -1,0 +1,38 @@
+diff --git a/libraries/sim/src/gui/gui_pad.c b/libraries/sim/src/gui/gui_pad.c
+index e546b53..e61e488 100644
+--- a/libraries/sim/src/gui/gui_pad.c
++++ b/libraries/sim/src/gui/gui_pad.c
+@@ -312,10 +312,12 @@ void GUI_PadDrawBindings(void)
+             igTableSetupColumn("Controller", ImGuiTableColumnFlags_WidthStretch, 2, 0);
+             igTableHeadersRow();
+             const struct { const char *label; int *key; int *joy; } ui_shortcuts[] = {
+-                { "Open Pokemon", &s_SIM_config.padSettings.l2Key, &s_SIM_config.padSettings.l2JoyKey },
++                // L2 (LT) is reserved for Lake Trio's One Screen shortcut.
++                // The game's redundant direct-open Pokemon shortcut is disabled.
+                 { "Open Bag", &s_SIM_config.padSettings.r2Key, &s_SIM_config.padSettings.r2JoyKey },
+                 { "Open Options", &s_SIM_config.padSettings.l3Key, &s_SIM_config.padSettings.l3JoyKey },
+-                { "Open Mods", &s_SIM_config.padSettings.r3Key, &s_SIM_config.padSettings.r3JoyKey },
++                // R3 is reserved for the L3+R3 dashboard shortcut. The Mods
++                // menu remains accessible through the normal in-game X menu.
+                 { "Town Map", &s_SIM_config.mapKey, &s_SIM_config.mapJoyKey },
+             };
+             for (unsigned int i = 0; i < sizeof(ui_shortcuts) / sizeof(ui_shortcuts[0]); i++) {
+diff --git a/libraries/sim/src/sim_main.cpp b/libraries/sim/src/sim_main.cpp
+index 024f944..891d257 100644
+--- a/libraries/sim/src/sim_main.cpp
++++ b/libraries/sim/src/sim_main.cpp
+@@ -2611,10 +2611,12 @@ static u32 MapPadButtons(int key, bool joystick) {
+     { pad.rightKey, pad.rightJoyKey, PAD_KEY_RIGHT },
+     { pad.lKey, pad.lJoyKey, PAD_BUTTON_L },
+     { pad.rKey, pad.rJoyKey, PAD_BUTTON_R },
+-    { pad.l2Key, pad.l2JoyKey, PAD_BUTTON_L2 },
++    // LT is reserved for the One Screen D-pad Up + LT shortcut.
++    // Do not emit the game's redundant direct-open Pokemon action.
+     { pad.r2Key, pad.r2JoyKey, PAD_BUTTON_R2 },
+     { pad.l3Key, pad.l3JoyKey, PAD_BUTTON_L3 },
+-    { pad.r3Key, pad.r3JoyKey, PAD_BUTTON_R3 },
++    // R3 remains available to Lake Trio's L3+R3 dashboard shortcut, but
++    // should not publish the separate in-game Open Mods button.
+     { pad.l4Key, pad.l4JoyKey, PAD_BUTTON_L4 },
+     { pad.r4Key, pad.r4JoyKey, PAD_BUTTON_R4 },
+     { pad.l4Key, pad.l4JoyKey, PAD_BUTTON_L4 },
