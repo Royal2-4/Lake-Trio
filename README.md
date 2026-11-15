@@ -1,6 +1,6 @@
 # Lake Trio | Platinum Decompiled
 <p align="center">
-<img width="640" height="415" alt="lake-trio-logo(1)" src="https://github.com/user-attachments/assets/4536cd94-db35-4d1e-a302-7a7c5c6db7d2" />
+<img width="640" height="415" alt="lake-trio-logo(2)" src="https://github.com/user-attachments/assets/eb81c005-a9d5-4a92-9366-69a018494c9d" />
 </p>
  Platinum decompiled natively for Linux (ex. Steam Deck) and Windows 11, with mod support with LUA. 
  
