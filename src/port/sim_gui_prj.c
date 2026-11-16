@@ -77,6 +77,17 @@ static bool s_l3Held;
 static bool s_r3Held;
 static bool s_comboLatched;
 static bool s_backHeld;
+// A mapped gamepad must remain open to receive normalized SDL controller
+// events. Gameplay normally opens only its raw joystick, while ImGui can close
+// its own gamepad handles whenever the overlay is hidden. Poll a small set of
+// persistent SDL gamepad handles instead of relying on controller events.
+#define LAKE_TRIO_ONESCREEN_MAX_GAMEPADS 8
+typedef struct DashboardOneScreenPad {
+    SDL_GameController *handle;
+    SDL_JoystickID instance;
+    bool chordHeld;
+} DashboardOneScreenPad;
+static DashboardOneScreenPad s_oneScreenPads[LAKE_TRIO_ONESCREEN_MAX_GAMEPADS];
 // Controller focus regions: header actions, categories, and active page.
 // A on a category enters its page. LB/RB cycle regions; B goes back.
 static bool s_inHeader;
@@ -348,6 +359,71 @@ static int DashboardStickEvent(SDL_JoystickID instance, int button, int l3, int 
     return 0;
 }
 
+// Swap which DS engine is visible in One Screen mode; the regular
+// Swap Screens setting and saved configuration share the same state.
+static void DashboardToggleOneScreen(void)
+{
+    SIM_config_type *config = SIM_GetConfigPtr();
+    config->swapScreens = !config->swapScreens;
+    SIM_SetScreensSwapped(config->swapScreens);
+    s_saveConfigNextFrame = true;
+}
+
+// Poll the normalized controller state every frame, including while the
+// dashboard is hidden. SDL maps stick-click buttons and analog LT axes
+// consistently across Windows, Steam Deck and other mapped controllers.
+// A latch gives one toggle per press, regardless of which input is held first.
+static void DashboardPollOneScreenChord(void)
+{
+    // Discard detached gamepads without disturbing the emulator's own joystick.
+    for (int slot = 0; slot < LAKE_TRIO_ONESCREEN_MAX_GAMEPADS; ++slot) {
+        DashboardOneScreenPad *pad = &s_oneScreenPads[slot];
+        if (pad->handle && !SDL_GameControllerGetAttached(pad->handle)) {
+            SDL_GameControllerClose(pad->handle);
+            pad->handle = NULL;
+            pad->instance = -1;
+            pad->chordHeld = false;
+        }
+    }
+
+    // Acquire connected mapped pads even when ImGui gamepad navigation is off.
+    for (int index = 0; index < SDL_NumJoysticks(); ++index) {
+        if (!SDL_IsGameController(index)) continue;
+        const SDL_JoystickID id = SDL_JoystickGetDeviceInstanceID(index);
+        if (id < 0) continue;
+        int freeSlot = -1;
+        bool alreadyOpen = false;
+        for (int slot = 0; slot < LAKE_TRIO_ONESCREEN_MAX_GAMEPADS; ++slot) {
+            if (s_oneScreenPads[slot].handle && s_oneScreenPads[slot].instance == id)
+                alreadyOpen = true;
+            if (freeSlot < 0 && !s_oneScreenPads[slot].handle) freeSlot = slot;
+        }
+        if (alreadyOpen || freeSlot < 0) continue;
+        SDL_GameController *handle = SDL_GameControllerOpen(index);
+        if (!handle) continue;
+        s_oneScreenPads[freeSlot].handle = handle;
+        s_oneScreenPads[freeSlot].instance = id;
+        s_oneScreenPads[freeSlot].chordHeld = false;
+    }
+
+    SDL_GameControllerUpdate();
+    for (int slot = 0; slot < LAKE_TRIO_ONESCREEN_MAX_GAMEPADS; ++slot) {
+        DashboardOneScreenPad *pad = &s_oneScreenPads[slot];
+        if (!pad->handle) continue;
+        const bool held = SDL_GameControllerGetButton(pad->handle, SDL_CONTROLLER_BUTTON_RIGHTSTICK)
+            && SDL_GameControllerGetAxis(pad->handle, SDL_CONTROLLER_AXIS_TRIGGERLEFT) >= 18000;
+        // If all three controls are held, favor L3+R3 (dashboard) over screen swapping.
+        if (held && !pad->chordHeld
+            && !SDL_GameControllerGetButton(pad->handle, SDL_CONTROLLER_BUTTON_LEFTSTICK)
+            && SIM_GetConfigPtr()->screenLayout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE
+            && !s_menuOpen && !GUI_PadBlocksNavigation()) {
+            DashboardToggleOneScreen();
+            DashboardShortcutLog("One Screen toggled via R3+LT (device=%d)\n", (int)pad->instance);
+        }
+        pad->chordHeld = held;
+    }
+}
+
 // Called before the simulator's existing GUI key/joystick dispatcher. F1 is
 // already the default GUIKey in game.ini: consume it here so that one press
 // cannot also toggle the legacy in-window menubar.
@@ -359,6 +435,13 @@ int SIM_GUI_Prj_OverlayHandleEvent(const SDL_Event *event)
             if (event->type == SDL_KEYDOWN && !event->key.repeat) {
                 DashboardSetOpen(!s_menuOpen);
             }
+            return 1;
+        }
+        if (event->key.keysym.sym == SDLK_F2
+            && SIM_GetConfigPtr()->screenLayout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE) {
+            if (event->type == SDL_KEYDOWN && !event->key.repeat
+                && !s_menuOpen && !GUI_PadBlocksNavigation())
+                DashboardToggleOneScreen();
             return 1;
         }
     }
@@ -477,7 +560,7 @@ static void DashboardDisplaySettings(void)
         "10x (2560x1920)",
     };
     const int renderModeCount = (int)(sizeof(renderModes) / sizeof(renderModes[0]));
-    const char *layoutNames[] = { "Vertical", "Horizontal", "Large Screen" };
+    const char *layoutNames[] = { "Vertical", "Horizontal", "Large Screen", "One Screen" };
 
     igTextUnformatted("Display & Performance", NULL);
     igSeparator();
@@ -569,17 +652,20 @@ static void DashboardDisplaySettings(void)
     igSeparator();
     igTextUnformatted("Nintendo DS screens", NULL);
     int layout = (int)config->screenLayout;
-    if (layout >= 0 && layout < 3
-        && igCombo_Str_arr("Screen layout", &layout, layoutNames, 3, 3)) {
+    if (layout >= 0 && layout < 4
+        && igCombo_Str_arr("Screen layout", &layout, layoutNames, 4, 4)) {
         config->screenLayout = (SIM_config_screen_layout_type)layout;
         s_saveConfigNextFrame = true;
     }
     bool swapped = config->swapScreens != 0;
-    if (igCheckbox("Swap screens", &swapped)) {
+    const bool oneScreen = config->screenLayout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE;
+    if (igCheckbox(oneScreen ? "Show touchscreen" : "Swap screens", &swapped)) {
         config->swapScreens = swapped;
         SIM_SetScreensSwapped(swapped);
         s_saveConfigNextFrame = true;
     }
+    if (oneScreen)
+        igTextWrapped("Switch screens: F2 or R3 + LT. The touchscreen accepts input only when displayed.");
 
     igSpacing();
     igSeparator();
@@ -706,6 +792,7 @@ static void DashboardPopTheme(void)
 void SIM_GUI_Prj_Toolbar(int canImport)
 {
     if (!DashboardEnabled()) return;
+    DashboardPollOneScreenChord();
     // Enable Dear ImGui's existing SDL2 gamepad navigation while the overlay
     // is visible. During input rebinding, the next button belongs to the editor.
     ImGuiIO *io = igGetIO_ContextPtr(igGetCurrentContext());
