@@ -203,3 +203,15 @@ Normally, you can battle species you've seen but can only catch species you've a
 ### Shiny Rate
 
 Increase shiny odds for newly generated wild Pokémon and Eggs. Choose from **1×** (the original odds) up to **8192×** (guaranteed shiny). Starts at **16×**. Changing the setting doesn't turn Pokémon you already own into shinies.
+
+
+### Third Party Dependencies 
+
+| Dependency | License |
+| :--- | :--- |
+| libntr | [MIT License](https://github.com/cybervisi0n/libntr/blob/main/LICENSE) |
+| Dear ImGui | [MIT License](https://github.com/ocornut/imgui/blob/master/LICENSE.txt) |
+| SDL2 | [zlib License](https://www.libsdl.org/license.php) | Repository |
+| Lua | [MIT License](https://www.lua.org/license.html) | 
+| Qt6 | [LGPLv3/GPL License](https://doc.qt.io/qt-6/licensing.html) | 
+
