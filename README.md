@@ -20,7 +20,7 @@ Download your platform's build from [Releases](https://github.com/Royal2-4/Lake-
 - **Linux:** `Lake-Trio.AppImage` - mark it as executable first!
 - **Windows 11:** `Lake-Trio-Windows-x86_64.zip ` - extract to a folder of your choice,  launch from main.exe.
 
-# Press F1 or L3+R3 ** → Game → Import ROM…** and select your own provided Platinum `.nds` file. Both US and European versions are supported. The game starts once the import finishes.
+## Press F1 or L3+R3 ** → Game → Import ROM…** and select your own provided Platinum `.nds` file. Both US and European versions are supported. The game starts once the import finishes.
 
 The Linux x86-64 AppImage includes Qt, its plugins, SDL and the C/C++ runtime;
 you do not need to install a matching Qt version. It supports Wayland and X11
@@ -29,25 +29,59 @@ included and installed beside the AppImage on first launch, preserving existing
 settings. Keep the AppImage in a writable folder. If FUSE is unavailable, launch
 it with `--appimage-extract-and-run`.
 
+
+Here is what Lake Trio has to offer:
+
+---
+
+## Features & Differences
+
+### 1. Modern Dear ImGui Dashboard (Replacing Legacy Window Menus)
+* **What's New:** Replaced the legacy file/input menu bar with a clean, full-screen, controller-friendly Dear ImGui dashboard.
+* **How it works:** Open or close the dashboard anytime using **F1 (keyboard)** or **R3 + L3 (controller)**. Use **RB/LB** to navigate panel columns.
+* **Centralized Control:** Manage ROM imports, display options, audio controls, and full gamepad navigation without needing to fiddle with in-game menus first. [Mods, game-level changes, and display settings also available as in-game settings]
+
+### 2. Steam Deck & Linux Gaming Mode Fixes
+* **What's New:** Fixed critical mouse-click input bugs affecting SteamOS Gaming Mode (the Gamescope environment needed for Nintendo DS screen rendering).
+* **Fix Details:** Bridged Qt mouse events directly into SDL's event queue and patched `libntr` touchscreen coordinate handling to ensure menus, viewports, and touch simulations respond properly.
+
+### 3. New "One Screen" Display Mode & Instant Switching
+* **What's New:** Introduced a fourth layout option alongside the legacy Large Screen, Horizontal, and Vertical formats.
+* **One Screen Mode:** Displays a single Nintendo DS screen at the largest possible size within the window while maintaining the native 4:3 aspect ratio. One immersive screen at a time!
+* **Display Switching:** Seamlessly toggle between the primary and secondary Nintendo DS screens using **F2 (keyboard)** or **R3 + LT (controller)**. Touchscreen and mouse input dynamically map to whichever screen is active.
+
+### 4. 3D Resolution & Window Size Scaling (Up to 10x Native)
+* **What's New:** Extended internal 3D rendering options up to **10x native resolution (2560 × 1920)**. 
+* **Clarity:** The resolution dropdown displays exact pixel counts alongside scaling multipliers (from 1x up to 10x) so you know your exact internal rendering target. Easily enter 'Fullscreen' (borderless), set it to your display's resolution(s), and change in-game rendering quality.
+
+### 5. Seamless Audio Device Management & Amplification
+* **What's New:** Access and seamlessly swap between your audio devices right from the dashboard!
+* **Clarity:** Open the dashboard (R3+L3 or F1), navigate to the 'Audio' category to view available audio devices, natively control your system's volume (0–100%), and utilize up to 200% software-based amplification.
+
+---
+
+
 ## Controls
 
-| Action         | Keyboard            |
-|----------------|---------------------|
-| Move           | Arrow keys          |
-| A / B          | Z / X               |
-| X / Y          | C / V               |
-| L / R          | A / D               |
-| Start / Select | Enter / Right Shift |
-| Save           | F5                  |
-| Reset          | F9                  |
-| Swap screens   | F12                 |
-| Map            | M                   |
+| Gamepad | Keyboard | Action |
+| --- | --- | --- |
+| R3 + L3 | F1 | Dashboard |
+| R3 + LT | F2 | Swap Displays |
+| DPAD/Joystick | Arrow keys | Move |
+| A / B | Z / X | Confirm/Cancel |
+| X / Y | C / V | Menu/Key Item |
+| L / R | A / D | Navigate Dashboard, Bags, etc. |
+| Start / Select | Enter / Right Shift | Self explanatory |
+| — | F5 | Save |
+| — | F9 | Reset |
+| — | M | Map |
 
-Use the mouse for the touch screen. Keyboard and controller bindings are under **F1 or L3+R3 → Controls → Rebind as Needed → Apply Changes**, including shortcuts for the bike, fishing, field moves and Pokétch apps.
+Use the mouse for the touch screen interactions (touch ddisplays work too)! Map the Steam Deck trackpad as mouse+click, or map controller (ex. left joystick) to mouse in Steam Input. Keyboard and controller bindings are under **F1 or L3+R3 → Controls → Rebind as Needed → Apply Changes**, including shortcuts for the bike, fishing, field moves and Pokétch apps.
 
 
-# Optional Settings From In-Game
-## New options
+# Optional Settings From In-Game Settings
+## Mod Menu, and certain game-level settings (ex. autosave), are only in the in-game settings (not Dashboard).
+
 
 Available in the in-game **Options** menu, alongside the original settings.
 
