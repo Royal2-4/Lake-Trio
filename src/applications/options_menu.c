@@ -556,6 +556,22 @@ static int SetupMenuVisuals(OptionsMenuData *menuData)
             menuData->heapID);
         if (!menuData->isModMenu) {
             LoadAllEntryChoices(menuData);
+
+            #ifdef SDK_PORT
+            // Lake Trio V1.2.1B: register the fourth simulator layout in the in-game menu.
+            // Previously, selecting layout 3 indexed a three-choice array.
+            OptionsMenuEntry *layout = &menuData->entries.screenLayout;
+            if (layout->numChoices == 3) {
+                layout->choices[3] = Mods_StringFromUtf8("One Screen", menuData->heapID);
+                if (layout->choices[3] != NULL) {
+                    layout->numChoices = 4;
+                }
+            }
+            // A future or invalid saved value must never index beyond the choices.
+            if (layout->numChoices > 0 && layout->selected >= layout->numChoices) {
+                layout->selected = 0;
+            }
+            #endif
         }
         break;
 
