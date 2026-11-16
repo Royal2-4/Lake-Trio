@@ -370,7 +370,7 @@ static void DashboardToggleOneScreen(void)
 }
 
 // Poll the normalized controller state every frame, including while the
-// dashboard is hidden. SDL's mapping resolves D-pad hats/buttons and LT axes
+// dashboard is hidden. SDL maps stick-click buttons and analog LT axes
 // consistently across Windows, Steam Deck and other mapped controllers.
 // A latch gives one toggle per press, regardless of which input is held first.
 static void DashboardPollOneScreenChord(void)
@@ -410,13 +410,15 @@ static void DashboardPollOneScreenChord(void)
     for (int slot = 0; slot < LAKE_TRIO_ONESCREEN_MAX_GAMEPADS; ++slot) {
         DashboardOneScreenPad *pad = &s_oneScreenPads[slot];
         if (!pad->handle) continue;
-        const bool held = SDL_GameControllerGetButton(pad->handle, SDL_CONTROLLER_BUTTON_DPAD_UP)
+        const bool held = SDL_GameControllerGetButton(pad->handle, SDL_CONTROLLER_BUTTON_RIGHTSTICK)
             && SDL_GameControllerGetAxis(pad->handle, SDL_CONTROLLER_AXIS_TRIGGERLEFT) >= 18000;
+        // If all three controls are held, favor L3+R3 (dashboard) over screen swapping.
         if (held && !pad->chordHeld
+            && !SDL_GameControllerGetButton(pad->handle, SDL_CONTROLLER_BUTTON_LEFTSTICK)
             && SIM_GetConfigPtr()->screenLayout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE
             && !s_menuOpen && !GUI_PadBlocksNavigation()) {
             DashboardToggleOneScreen();
-            DashboardShortcutLog("One Screen toggled via D-pad Up+LT (device=%d)\n", (int)pad->instance);
+            DashboardShortcutLog("One Screen toggled via R3+LT (device=%d)\n", (int)pad->instance);
         }
         pad->chordHeld = held;
     }
@@ -663,7 +665,7 @@ static void DashboardDisplaySettings(void)
         s_saveConfigNextFrame = true;
     }
     if (oneScreen)
-        igTextWrapped("Switch screens: F2 or D-pad Up + LT. The touchscreen accepts input only when displayed.");
+        igTextWrapped("Switch screens: F2 or R3 + LT. The touchscreen accepts input only when displayed.");
 
     igSpacing();
     igSeparator();
