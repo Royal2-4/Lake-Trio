@@ -6,7 +6,7 @@ Copyright (C) 2026 Royal2-4.
 
 Original code and modifications for which Royal2-4 holds the necessary copyright rights, and which are expressly identified as GPL-licensed, are made available under the **GNU General Public License version 3.0 only (GPL-3.0-only)**.
 
-The complete GPLv3 license text is available at `[LICENSES/GPL-3.0-only.txt](https://www.gnu.org/licenses/gpl-3.0.html#license-text)`.
+The complete GPLv3 license text is available at `LICENSE.md`.
 
 These terms are intended to ensure that redistributed derivative works covered by the GPL remain available under the same open-source licensing terms.
 
