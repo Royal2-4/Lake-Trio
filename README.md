@@ -2,7 +2,6 @@
 <p align="center">
 <img width="640" height="415" alt="lake-trio-logo(2)" src="https://github.com/user-attachments/assets/eb81c005-a9d5-4a92-9366-69a018494c9d" />
 </p>
- Platinum decompiled natively for Linux (ex. Steam Deck) and Windows 11, with mod support with LUA. 
  
 > [!IMPORTANT]
 > **No Game Assets Included:** This repository does not contain, distribute, or provide links to any copyrighted game files, ROMs, ISOs, or proprietary assets. It is strictly a build tool and source code project. You must legally obtain and supply your own original game files to use this software.
