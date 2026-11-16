@@ -6,7 +6,7 @@
 > [!IMPORTANT]
 > **No Game Assets Included:** This repository does not contain, distribute, or provide links to any copyrighted game files, ROMs, ISOs, or proprietary assets. It is strictly a build tool and source code project. You must legally obtain and supply your own original game files to use this software.
 > 
-> **No Affiliation:** This is an independent, fan-made project. It is not affiliated with, associated with, authorized, endorsed by, or in any way officially connected with Nintendo, Game Freak, The Pokémon Company, or any of their subsidiaries or affiliates. All product and company names, trademarks, and registered trademarks are the property of their respective owners.
+> **Disclaimer:** This is an independent, fan-made project. It is not affiliated with, associated with, authorized, endorsed by, or in any way officially connected with Nintendo, Game Freak, The Pokémon Company, or any of their subsidiaries or affiliates. All product and company names, trademarks, and registered trademarks are the property of their respective owners. Updates to the repo are at my own discretion, and availability. I am mostly doing this for experience, and to have fun playing the game myself.
 >
 > **Forked Repo:** This is a forked repository of ['platinum'](https://github.com/xgcModding/platinum) from xgcModding from release 0.3. The reason this fork was created was to resolve a bug with how Game Mode in the Steam Deck/Steam OS was handling mouse click and input events. V1.0 of Lake Trio seems to fix this in my play tests. Additional updates will be made at my discretion and availability. 
 >
