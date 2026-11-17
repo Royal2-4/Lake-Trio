@@ -1,0 +1,88 @@
+diff --git a/libraries/sim/src/config/sim_config.c b/libraries/sim/src/config/sim_config.c
+index 312fe7f..231b404 100644
+--- a/libraries/sim/src/config/sim_config.c
++++ b/libraries/sim/src/config/sim_config.c
+@@ -583,4 +583,5 @@ void SIM_Config_LoadDefaults(SIM_config_type * aConfig)
+ #else
+-    // Follow the new desktop L3 default; button 7 is now Start.
+-    aConfig->undergroundRadarJoyKey = 8;
++    // Stick clicks are reserved for the dashboard and display shortcuts.
++    // Leave Underground Radar unbound by default; it remains rebindable.
++    aConfig->undergroundRadarJoyKey = SIM_CONFIG_JOY_INVALID_KEY;
+ #endif
+diff --git a/libraries/sim/src/gui/gui_pad.c b/libraries/sim/src/gui/gui_pad.c
+index e61e488..2f9ed76 100644
+--- a/libraries/sim/src/gui/gui_pad.c
++++ b/libraries/sim/src/gui/gui_pad.c
+@@ -317,3 +317,7 @@ void GUI_PadDrawBindings(void)
+                 { "Open Bag", &s_SIM_config.padSettings.r2Key, &s_SIM_config.padSettings.r2JoyKey },
++#ifdef SDK_BUILD_NX
+                 { "Open Options", &s_SIM_config.padSettings.l3Key, &s_SIM_config.padSettings.l3JoyKey },
++#else
++                // L3 opens no in-game menu; Options remains accessible from X.
++#endif
+                 // R3 is reserved for the L3+R3 dashboard shortcut. The Mods
+diff --git a/libraries/sim/src/sim_main.cpp b/libraries/sim/src/sim_main.cpp
+index 0d0e8ca..7fc2a72 100644
+--- a/libraries/sim/src/sim_main.cpp
++++ b/libraries/sim/src/sim_main.cpp
+@@ -2660,3 +2660,8 @@ static u32 MapPadButtons(int key, bool joystick) {
+     { pad.r2Key, pad.r2JoyKey, PAD_BUTTON_R2 },
++#ifdef SDK_BUILD_NX
+     { pad.l3Key, pad.l3JoyKey, PAD_BUTTON_L3 },
++#else
++    // L3 and R3 are reserved for the dashboard and screen-swap chords.
++    // Neither thumbstick click should open an in-game menu by itself.
++#endif
+     // R3 remains available to Lake Trio's L3+R3 dashboard shortcut, but
+@@ -2793,1 +2798,33 @@ static u64 JoystickShortcutMask(int key) {
++#ifndef SDK_BUILD_NX
++// Reject stick clicks from the *game* input path, but leave SDL events intact
++// for the overlay's L3+R3 and R3+LT shortcut handlers. SDL's controller map
++// is more reliable than saved raw button indices across SteamOS and Windows.
++static bool IsReservedStickClick(const SDL_JoyButtonEvent &event) {
++  for (int i = 0; i < SDL_NumJoysticks(); ++i) {
++    if (SDL_JoystickGetDeviceInstanceID(i) != event.which) continue;
++    if (SDL_IsGameController(i)) {
++      SDL_GameController *controller = SDL_GameControllerOpen(i);
++      if (controller != NULL) {
++        const SDL_GameControllerButtonBind left = SDL_GameControllerGetBindForButton(
++            controller, SDL_CONTROLLER_BUTTON_LEFTSTICK);
++        const SDL_GameControllerButtonBind right = SDL_GameControllerGetBindForButton(
++            controller, SDL_CONTROLLER_BUTTON_RIGHTSTICK);
++        SDL_GameControllerClose(controller);
++        const bool leftMapped = left.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON;
++        const bool rightMapped = right.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON;
++        // A mapped pad's unrelated raw buttons must not be discarded merely
++        // because their indices happen to match another pad's saved defaults.
++        if (leftMapped || rightMapped)
++          return (leftMapped && left.value.button == event.button) ||
++                 (rightMapped && right.value.button == event.button);
++      }
++    }
++    break;
++  }
++  // Generic joysticks may lack an SDL GameController mapping.
++  return event.button == s_SIM_config.padSettings.l3JoyKey ||
++         event.button == s_SIM_config.padSettings.r3JoyKey;
++}
++#endif
++
+ static void HandleJoystickKeyDown(int key) {
+@@ -3018,6 +3055,16 @@ void *SIM_Render(void *arg) {
+       if (Event.type == SDL_JOYBUTTONDOWN) {
++#ifdef SDK_BUILD_NX
+         HandleJoystickKeyDown(Event.jbutton.button);
++#else
++        if (!IsReservedStickClick(Event.jbutton))
++          HandleJoystickKeyDown(Event.jbutton.button);
++#endif
+       }
+       if (Event.type == SDL_JOYBUTTONUP) {
++#ifdef SDK_BUILD_NX
+         HandleJoystickKeyUp(Event.jbutton.button);
++#else
++        if (!IsReservedStickClick(Event.jbutton))
++          HandleJoystickKeyUp(Event.jbutton.button);
++#endif
+       }
