@@ -271,7 +271,9 @@ BOOL OptionsMenu_Init(ApplicationManager *appMan, int *state)
     menuData->entries.windowSize.selected = SIM_GetWindowSizeMode() - 1;
     menuData->entries.skipIntro.selected = SIM_GetSkipIntroMode();
     menuData->entries.screenLayout.selected = SIM_GetConfigPtr()->screenLayout;
-    menuData->entries.swapScreens.selected = SIM_GetConfigPtr()->swapScreens ? 0 : 1;
+    menuData->entries.swapScreens.selected =
+        (SIM_GetConfigPtr()->screenLayout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE_SMART
+            ? SIM_GetScreensSwapped() : SIM_GetConfigPtr()->swapScreens) ? 0 : 1;
     menuData->entries.vsync.selected = SIM_GetVsyncEnabled() ? 0 : 1;
     menuData->entries.fps.selected = SIM_GetFrameRateMode();
     menuData->entries.monitor.selected = SIM_GetMonitor() - 1;
@@ -330,9 +332,20 @@ BOOL OptionsMenu_Exit(ApplicationManager *appMan, int *state)
         SIM_GetConfigPtr()->movementSpeed = menuData->entries.movementSpeed.selected;
         SIM_GetConfigPtr()->battleSpeed = menuData->entries.battleSpeed.selected;
         SIM_GetConfigPtr()->cameraDistance = menuData->entries.cameraDistance.selected + 1;
+        BOOL wasSmart = SIM_GetConfigPtr()->screenLayout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE_SMART;
         SIM_GetConfigPtr()->screenLayout = menuData->entries.screenLayout.selected;
-        SIM_GetConfigPtr()->swapScreens = menuData->entries.swapScreens.selected == 0;
-        SIM_SetScreensSwapped(SIM_GetConfigPtr()->swapScreens);
+        if (SIM_GetConfigPtr()->screenLayout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE_SMART) {
+            if (!wasSmart) {
+                // The new mode always starts with the primary display visible.
+                SIM_SmartScreen_ClearManual();
+            } else if ((menuData->entries.swapScreens.selected == 0) != SIM_GetScreensSwapped()) {
+                SIM_SmartScreen_SetManual(menuData->entries.swapScreens.selected == 0);
+            }
+        } else {
+            SIM_SmartScreen_ClearManual();
+            SIM_GetConfigPtr()->swapScreens = menuData->entries.swapScreens.selected == 0;
+            SIM_SetScreensSwapped(SIM_GetConfigPtr()->swapScreens);
+        }
         FieldAutosave_SetEnabled(menuData->entries.autosave.selected == 0);
         CameraDistance_ApplySettings();
         GameSpeed_ApplySettings();
@@ -558,16 +571,8 @@ static int SetupMenuVisuals(OptionsMenuData *menuData)
             LoadAllEntryChoices(menuData);
 
             #ifdef SDK_PORT
-            // Lake Trio V1.2.1B: register the fourth simulator layout in the in-game menu.
-            // Previously, selecting layout 3 indexed a three-choice array.
+            // Keep the V1.2.1B bounds protection for all five layout choices.
             OptionsMenuEntry *layout = &menuData->entries.screenLayout;
-            if (layout->numChoices == 3) {
-                layout->choices[3] = Mods_StringFromUtf8("One Screen", menuData->heapID);
-                if (layout->choices[3] != NULL) {
-                    layout->numChoices = 4;
-                }
-            }
-            // A future or invalid saved value must never index beyond the choices.
             if (layout->numChoices > 0 && layout->selected >= layout->numChoices) {
                 layout->selected = 0;
             }
@@ -1278,7 +1283,7 @@ static const int sNumChoicesPerEntry[MAX_ENTRIES] = {
     SIM_CONFIG_CAMERA_DISTANCE_MAX,
     2,
     2,
-    3,
+    5, // Screen layout (Vertical / Horizontal / Large / One Screen / One Screen S)
     2,
 #endif
     0,
@@ -1346,7 +1351,9 @@ static void LoadAllEntryChoices(OptionsMenuData *menuData)
                 };
                 menuData->entries.asArray[i].choices[j] = Mods_StringFromUtf8(skipIntroValues[j], menuData->heapID);
             } else if (i == ENTRY_SCREEN_LAYOUT) {
-                static const char *const layouts[] = { "Vertical", "Horizontal", "Large Screen" };
+                static const char *const layouts[] = {
+                    "Vertical", "Horizontal", "Large Screen", "One Screen", "One Screen S"
+                };
                 menuData->entries.asArray[i].choices[j] = Mods_StringFromUtf8(layouts[j], menuData->heapID);
             } else if (i == ENTRY_VSYNC || i == ENTRY_HIDE_POKEMON || i == ENTRY_SWAP_SCREENS) {
                 static const char *const vsyncValues[] = {

@@ -1,5 +1,9 @@
 #include "applications/naming_screen.h"
 
+#ifdef SDK_PORT
+#include <simulator/sim.h>
+#endif
+
 #include <nitro.h>
 #include <string.h>
 
@@ -1156,6 +1160,10 @@ static BOOL NamingScreen_Init(ApplicationManager *appMan, int *state)
         namingScreen->touchscreenIconBlinker = sub_0201567C(NULL, 1, 12, HEAP_ID_NAMING_SCREEN_APP);
 
         (*state) = NMS_APP_STATE_WAIT_FADE_IN;
+#ifdef SDK_PORT
+        // Naming graphics are ready; keep the keyboard fullscreen until exit.
+        SIM_SmartScreen_SetContext(SIM_SMART_SCREEN_NAMING, TRUE);
+#endif
         return TRUE;
         break;
     }
@@ -1465,6 +1473,9 @@ static BOOL NamingScreen_Exit(ApplicationManager *appMan, int *unusedState)
 
     gSystem.whichScreenIs3D = DS_SCREEN_MAIN;
     GXLayers_SwapDisplay();
+#ifdef SDK_PORT
+    SIM_SmartScreen_SetContext(SIM_SMART_SCREEN_NAMING, FALSE);
+#endif
 
     return TRUE;
 }

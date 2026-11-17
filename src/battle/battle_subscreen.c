@@ -1,5 +1,9 @@
 #include "battle/battle_subscreen.h"
 
+#ifdef SDK_PORT
+#include <simulator/sim.h>
+#endif
+
 #include <nitro.h>
 
 #include "constants/moves.h"
@@ -965,6 +969,9 @@ void *BattleSubscreen_New(NARC *unused1, NARC *unused2, BattleSystem *battleSys,
 
 void BattleSubscreen_Free(BattleSubscreen *btlSubscreen)
 {
+#ifdef SDK_PORT
+    SIM_SmartScreen_SetContext(SIM_SMART_SCREEN_BATTLE_MENU, FALSE);
+#endif
     if (btlSubscreen->suppressActivationSfxPtr) {
         *btlSubscreen->suppressActivationSfxPtr = btlSubscreen->suppressActivationSfx;
     }
@@ -1072,6 +1079,12 @@ void BattleSubscreen_SetupBackground(NARC *unused, NARC *spriteNarc, BattleSubsc
     if (newBattleMenuConfig->drawMenu) {
         newBattleMenuConfig->drawMenu(btlSubscreen, menuConfigIndex, forceRedraw);
     }
+#ifdef SDK_PORT
+    // Battle menus, including forced switches, can appear outside normal turn
+    // selection. Only touch-capable menus request fullscreen secondary display.
+    SIM_SmartScreen_SetContext(SIM_SMART_SCREEN_BATTLE_MENU,
+        newBattleMenuConfig->touchScreenRects != NULL && newBattleMenuConfig->processInput != NULL);
+#endif
 
     SysTask_ExecuteAfterVBlank(SysTask_ConfigureBgLayers, btlSubscreen, 10);
 }

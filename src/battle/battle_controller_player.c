@@ -1,5 +1,9 @@
 #include "battle/battle_controller_player.h"
 
+#ifdef SDK_PORT
+#include <simulator/sim.h>
+#endif
+
 #include "nitro/types.h"
 #include <nitro.h>
 #include <string.h>
@@ -211,6 +215,12 @@ BOOL BattleContext_Main(BattleSystem *battleSys, BattleContext *battleCtx)
 
 void BattleContext_Free(BattleContext *battleCtx)
 {
+#ifdef SDK_PORT
+    // Also cover battles aborted without reaching the normal end state.
+    SIM_SmartScreen_SetContext(SIM_SMART_SCREEN_BATTLE_COMMANDS, FALSE);
+    SIM_SmartScreen_SetContext(SIM_SMART_SCREEN_BATTLE_MENU, FALSE);
+    SIM_SmartScreen_SetContext(SIM_SMART_SCREEN_BATTLE_PARTY, FALSE);
+#endif
     Heap_Free(battleCtx->aiContext.itemTable);
     Heap_Free(battleCtx);
 }
@@ -280,6 +290,9 @@ static void BattleControllerPlayer_InitCommandSelection(BattleSystem *battleSys,
 
     BattleSystem_SetCommandSelectionFlags(battleSys, 0);
     BattleSystem_LoadFightOverlay(battleSys, TRUE);
+#ifdef SDK_PORT
+    SIM_SmartScreen_SetContext(SIM_SMART_SCREEN_BATTLE_COMMANDS, TRUE);
+#endif
 
     battleCtx->command = BATTLE_CONTROL_COMMAND_SELECTION_INPUT;
 }
@@ -707,6 +720,13 @@ static void BattleControllerPlayer_CommandSelectionInput(BattleSystem *battleSys
 
 static void BattleControllerPlayer_CalcTurnOrder(BattleSystem *battleSys, BattleContext *battleCtx)
 {
+#ifdef SDK_PORT
+    // End the completed turn-selection session. Its last drawn menu may
+    // remain touch-capable, but it no longer needs player input while the
+    // battle turn executes. Later scripted prompts can request a new context.
+    SIM_SmartScreen_SetContext(SIM_SMART_SCREEN_BATTLE_COMMANDS, FALSE);
+    SIM_SmartScreen_SetContext(SIM_SMART_SCREEN_BATTLE_MENU, FALSE);
+#endif
     int battler, i, j; // Must declare these here to match.
 
     int maxBattlers = BattleSystem_GetMaxBattlers(battleSys);
