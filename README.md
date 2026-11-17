@@ -1,103 +1,106 @@
-# Lake Trio | Platinum Decompiled
-<p align="center">
+<div align="center">
+    
 <img width="640" height="415" alt="lake-trio-logo(2)" src="https://github.com/user-attachments/assets/eb81c005-a9d5-4a92-9366-69a018494c9d" />
-</p>
- 
-> [!IMPORTANT]
-> **No Game Assets Included:** This repository does not contain, distribute, or provide links to any copyrighted game files, ROMs, ISOs, or proprietary assets. It is strictly a build tool and source code project. You must legally obtain and supply your own original game files to use this software.
-> 
-> **Disclaimer:** This is an independent, fan-made project. It is not affiliated with, associated with, authorized, endorsed by, or in any way officially connected with Nintendo, Game Freak, The Pokémon Company, or any of their subsidiaries or affiliates. All product and company names, trademarks, and registered trademarks are the property of their respective owners. Updates to the repo are at my own discretion, and availability. I am mostly doing this for experience, and to have fun playing the game myself.
->
-> **Forked Repo:** This is a forked repository of ['platinum'](https://github.com/xgcModding/platinum) from xgcModding from release 0.3. The reason this fork was created was to resolve a bug with how Game Mode in the Steam Deck/Steam OS was handling mouse click and input events. V1.0 of Lake Trio seems to fix this in my play tests. Additional updates will be made at my discretion and availability. 
->
-> **Gen AI:** Lake-Trio does use generative AI to help my workflow. This is my first time working with a forked repo in a decompiled game, C++, and these type of dependencies/libraries. To ensure I am doing things correctly, I am using AI and official documentation along the way, while also getting personal experience in how to use these tools. xgcModding (original repo author, prior to fork) also has a disclaimer about AI usage. I'm still a recent grad and am learning how to work in these type of environments. I will never use gen AI for art, narrative building, game assets, etc.. Purely to assist and learn with code. 
- 
 
-## Play
+### One Screen S. Intelligent focus.
+Introduced in v2.0.0. A single, expansive display that dynamically adapts to the moments that matter most.
 
-Download your platform's build from [Releases](https://github.com/Royal2-4/Lake-Trio/releases), extract the .appImage and launch it for further instructions:
-- **Linux:** `Lake-Trio.AppImage` - mark it as executable first!
-- **Windows 11:** `Lake-Trio-Windows-x86_64.zip ` - extract to a folder of your choice,  launch from main.exe.
+<br>
 
-### Press F1 or L3+R3 → Game → Import ROM… and select your own provided Platinum `.nds` file. Both US and European versions are supported. The game starts once the import finishes.
+<img width="800" height="600" alt="one-screen-show" src="https://github.com/user-attachments/assets/007e5973-e7b9-49af-94c9-c4a06b0f86d5" />
 
-The Linux x86-64 AppImage includes Qt, its plugins, SDL and the C/C++ runtime;
-you do not need to install a matching Qt version. It supports Wayland and X11
-and requires a working graphics driver with OpenGL 4.2 support. Shipped mods are
-included and installed beside the AppImage on first launch, preserving existing
-settings. Keep the AppImage in a writable folder. If FUSE is unavailable, launch
-it with `--appimage-extract-and-run`.
+<br>
 
----
-# What Lake Trio has to offer:
+One Screen S presents your game at the largest possible scale while preserving the native 4:3 aspect ratio. Whether you’re entering character names, nicknaming captures, or navigating fast-paced battles, the display intelligently shifts focus to whatever matters most, completely automatically.
 
-### 1. Modern Dear ImGui Dashboard (Replacing Legacy Window Menus)
-* **What's New:** Replaced the legacy file/input menu bar with a clean, full-screen, controller-friendly Dear ImGui dashboard.
-* **How it works:** Open or close the dashboard anytime using **F1 (keyboard)** or **R3 + L3 (controller)**. Use **RB/LB** to navigate panel columns.
-* **Centralized Control:** Manage ROM imports, display options, audio controls, and full gamepad navigation without needing to fiddle with in-game menus first. [Mods, game-level changes, and display settings also available as in-game settings]
+<br><br>
 
-### 2. Steam Deck & Linux Gaming Mode Fixes
-* **What's New:** Fixed critical mouse-click input bugs affecting SteamOS Gaming Mode (the Gamescope environment needed for Nintendo DS screen rendering).
-* **Fix Details:** Bridged Qt mouse events directly into SDL's event queue and patched `libntr` touchscreen coordinate handling to ensure menus, viewports, and touch simulations respond properly.
+### A completely reimagined dashboard.
 
-### 3. New "One Screen" Display Mode & Instant Switching
-* **What's New:** Introduced a fourth layout option alongside the legacy Large Screen, Horizontal, and Vertical formats.
-* **One Screen Mode:** Displays a single Nintendo DS screen at the largest possible size within the window while maintaining the native 4:3 aspect ratio. One immersive screen at a time!
-* **Display Switching:** Seamlessly toggle between the primary and secondary Nintendo DS screens using **F2 (keyboard)** or **R3 + LT (controller)**. Touchscreen and mouse input dynamically map to whichever screen is active.
+Say goodbye to legacy menus. Lake Trio introduces a fluid, controller-friendly dashboard built for complete command. Summon it instantly with a press of F1 (keyboard) or R3 + L3 (controller), and glide through columns effortlessly using RB/LB. From ROM management and display settings to precision audio controls, everything you need is right at your fingertips, no in-game friction required for initial setup.
 
-### 4. 3D Resolution & Window Size Scaling (Up to 10x Native)
-* **What's New:** Extended internal 3D rendering options up to **10x native resolution (2560 × 1920)**. 
-* **Clarity:** The resolution dropdown displays exact pixel counts alongside scaling multipliers (from 1x up to 10x) so you know your exact internal rendering target. Easily enter 'Fullscreen' (borderless), set it to your display's resolution(s), and change in-game rendering quality.
+<br>
 
-### 5. Seamless Audio Device Management & Amplification
-* **What's New:** Access and seamlessly swap between your audio devices right from the dashboard!
-* **Clarity:** Open the dashboard (R3+L3 or F1), navigate to the 'Audio' category to view available audio devices, natively control your system's volume (0–100%), and utilize up to 200% software-based amplification.
+<img width="750" height="200" alt="Screenshot 2026-11-16 220602" src="https://github.com/user-attachments/assets/65dcbe67-b292-45bc-89fa-84e7052d024d" />
 
----
+<br><br>
 
+### Built for on the go.
+
+Take your experience anywhere with the Steam Deck. Lake Trio eliminates mouse-click discrepancies in SteamOS Game Mode. By seamlessly bridging Qt mouse events into the SDL event queue and refining touchscreen coordinate handling, every menu, viewport, and touch gesture responds with absolute precision.
+
+<br>
+
+<img width="640" height="313" alt="press_white_front_english_thumb" src="https://github.com/user-attachments/assets/4228c973-20f9-47bc-a472-103363dc590c" />
+
+<br><br>
+
+### Crystal clear. Pixel by pixel.
+
+Experience optional internal 3D rendering scaled up to **10x resolution (2560 × 1920)** from the native 256 × 192 DS resolution. The dashboard offers clear pixel counts and precise scaling multipliers. Drop into borderless fullscreen, match your display's native resolution, and witness unprecedented visual clarity.
+
+<br>
+
+<img width="478" height="359" alt="Scaling-Compare" src="https://github.com/user-attachments/assets/8f2e06d5-7f2f-4c08-b7f0-552432bf6d64" />
+
+<br><br>
+
+### Sound, amplified.
+
+Switch audio devices instantly, manage output levels from 0% to 100%, and push your sound further with up to 200% software amplification for those elite battle soundtracks. All unified seamlessly within the dashboard.
+
+<br><br>
 
 ## Controls
 
 | Gamepad | Keyboard | Action |
-| --- | --- | --- |
+| :---: | :---: | :---: |
 | R3 + L3 | F1 | Dashboard |
-| R3 + LT | F2 | Swap Displays |
+| R3 + LT | F2 | Manually Swap Displays in One Screen/One Screen S |
 | DPAD/Joystick | Arrow keys | Move |
 | A / B | Z / X | Confirm/Cancel |
 | X / Y | C / V | Menu/Key Item |
 | L / R | A / D | Navigate Dashboard, Bags, etc. |
 | Start / Select | Enter / Right Shift | Self explanatory |
-| — | F5 | Save |
-| — | F9 | Reset |
-| — | M | Map |
+| X | F5 | Save |
+| Y (key item) | M | Map |
 
-Use the mouse for the touch screen interactions (touch ddisplays work too)! Map the Steam Deck trackpad as mouse+click, or map controller (ex. left joystick) to mouse in Steam Input. Keyboard and controller bindings are under **F1 or L3+R3 → Controls → Rebind as Needed → Apply Changes**, including shortcuts for the bike, fishing, field moves and Pokétch apps.
+</div>
 
+<br>
 
-# Optional Settings From In-Game Settings
-## Mod Menu, and certain game-level settings (ex. autosave), are only in the in-game settings (not Dashboard).
+Interact naturally using your mouse or touch screen. Map the Steam Deck trackpad to mouse control, or map your controller joystick via Steam Input for mouse interaction. Custom bindings and quick shortcuts, for the bike, fishing rod, field moves, and Pokétch apps—are readily available under **F1 or L3+R3 → Controls → Rebind as Needed → Apply Changes**.
 
+<br>
 
-Available in the in-game **Options** menu, alongside the original settings.
+## Optional Game Settings
 
-| Option                       | What it does                                                                               |
-|------------------------------|--------------------------------------------------------------------------------------------|
-| Move Speed / Battle Speed    | Adjust movement and battles separately, from 1× to 4×. Both start at 2×.                   |
-| Capture Exp                  | Earn experience from catching Pokémon.                                                     |
-| Exp Share                    | Share experience with the rest of your party without held Exp. Share items.                |
-| Hide PKMN                    | Hide the opponent's next Pokémon when you're offered a switch.                             |
-| Resolution                   | Increase the rendering resolution.                                                         |
-| Window Size / Monitor        | Choose a window size, fullscreen mode and display.                                         |
+| Option | What it does |
+|---|---|
+| Move Speed / Battle Speed | Adjust movement and battles separately, from 1× to 4×. Both start at 2×. |
+| Capture Exp | Earn experience from catching Pokémon. |
+| Exp Share | Share experience with the rest of your party without held Exp. Share items. |
+| Hide PKMN | Hide the opponent's next Pokémon when you're offered a switch. |
+| Resolution | Increase the rendering resolution. |
+| Window Size / Monitor | Choose a window size, fullscreen mode and display. |
 | Screen Layout / Swap Screens | Stack the screens, put them side by side or enlarge the main screen; swap their positions. |
-| FPS / VSync                  | Set the frame rate and toggle vertical sync.                                               |
-| FPS Counter                  | Show the current frame rate.                                                               |
-| Camera Distance              | Zoom the camera out.                                                                       |
-| Skip Intro                   | Skip to the load screen or straight into your game.                                        |
-| Autosave                     | Save automatically after battles, zone changes and visits to the Pokémon Center or PC.     |
+| FPS / VSync | Set the frame rate and toggle vertical sync. |
+| FPS Counter | Show the current frame rate. |
+| Camera Distance | Zoom the camera out. |
+| Skip Intro | Skip to the load screen or straight into your game. |
+| Autosave | Save automatically after battles, zone changes and visits to the Pokémon Center or PC. |
 
-## Included mods
+    Move Speed, Battle Speed, Capture EXP, EXP share, Hide PKMN, Camera Distance, 
+    Skip Intro, Auto Save, and Mod Menu are only available in the in-game settings menu, and not the Dashboard.
 
-Open **MODS** in the game menu and select a mod to change its settings.
+<br>
+
+### Included mods
+
+Open MODS in the game menu and select a mod to change its settings.
+
+<details>
+<summary><b>View All Game Mods & Features</b> (Click to expand)</summary>
 
 ### Auto HM
 
@@ -116,7 +119,9 @@ Change how often you run into wild Pokémon while moving around. **100%** keeps 
 **CONSUMPTION** controls what happens to held berries used in battle:
 
 - **Default:** the berry is consumed as usual.
+
 - **Refill:** after battle, equip another of the same berry from your Bag, if you have one.
+
 - **Inf:** after battle, return the consumed berry without taking one from your Bag.
 
 Starts at **75%** growth reduction and **Inf** consumption. Berries aren't replenished during the battle.
@@ -132,8 +137,11 @@ Throw a Poké Ball without opening the Bag. Use **Q / E** to cycle through the b
 The capture settings also let you change the rules:
 
 - **MAX TRIES:** allow one to five throws per battle, or unlimited attempts. Separate switches decide whether the limit applies to legendary and shiny Pokémon.
+
 - **CAPTURE / CAPTURE S:** guarantee catches for all Pokémon or just shinies, while other capture restrictions still apply.
+
 - **CAPTURE RULES:** keep normal rules, allow one catch per area, or combine that restriction with a limit of six Pokémon across your party and PC.
+
 - **ONLY FIRST:** restrict catches to the first encounter in an area, even if it escapes or faints. **IF NOT NEW** skips species you've already caught when deciding which encounter uses that chance.
 
 Starts with normal catch chances, unlimited attempts and no area restrictions.
@@ -164,20 +172,20 @@ Check the current limit on your Trainer Card or in the mod's menu. Already being
 
 Evolve Pokémon that normally require trading by leveling them up instead. Enabled by default.
 
-| Evolution               | New requirement                 |
-|-------------------------|---------------------------------|
-| Kadabra → Alakazam      | Level 32                        |
-| Graveler → Golem        | Level 42                        |
-| Haunter → Gengar        | Level 42                        |
-| Machoke → Machamp       | Level 45                        |
-| Onix → Steelix          | Level up holding a Metal Coat   |
-| Scyther → Scizor        | Level up holding a Metal Coat   |
-| Rhydon → Rhyperior      | Level up holding a Protector    |
-| Dusclops → Dusknoir     | Level up holding a Reaper Cloth |
-| Porygon → Porygon2      | Level up holding an Up-Grade    |
-| Porygon2 → Porygon-Z    | Level up holding a Dubious Disc |
+| Evolution | New requirement |
+|---|---|
+| Kadabra → Alakazam | Level 32 |
+| Graveler → Golem | Level 42 |
+| Haunter → Gengar | Level 42 |
+| Machoke → Machamp | Level 45 |
+| Onix → Steelix | Level up holding a Metal Coat |
+| Scyther → Scizor | Level up holding a Metal Coat |
+| Rhydon → Rhyperior | Level up holding a Protector |
+| Dusclops → Dusknoir | Level up holding a Reaper Cloth |
+| Porygon → Porygon2 | Level up holding an Up-Grade |
+| Porygon2 → Porygon-Z | Level up holding a Dubious Disc |
 | Electabuzz → Electivire | Level up holding an Electirizer |
-| Magmar → Magmortar      | Level up holding a Magmarizer   |
+| Magmar → Magmortar | Level up holding a Magmarizer |
 
 Held-item evolutions work day or night and consume the item.
 
@@ -190,6 +198,7 @@ Show markers over hidden items so you can spot them while exploring. You still p
 Two optional rules, both disabled by default:
 
 - **PKMN DIE:** Pokémon that faint in battle are removed from your party afterward and sent to the PC, starting with the last box. Pokémon in that last box can't be withdrawn while the rule is active.
+
 - **PKMN LIMIT:** match the opposing trainer's team size. If they have two Pokémon, only your first two fit Pokémon take part; the rest return to your party afterward.
 
 For first-encounter and one-catch-per-area rules, use **Fast Ball Battle**.
@@ -204,14 +213,25 @@ Normally, you can battle species you've seen but can only catch species you've a
 
 Increase shiny odds for newly generated wild Pokémon and Eggs. Choose from **1×** (the original odds) up to **8192×** (guaranteed shiny). Starts at **16×**. Changing the setting doesn't turn Pokémon you already own into shinies.
 
+</details>
 
-### Third Party Dependencies 
+<br><br>
+
+> [!IMPORTANT]
+> **No Game Assets Included:** This repository does not contain, distribute, or provide links to any copyrighted game files, ROMs, ISOs, or proprietary assets. It is strictly a build tool and source code project. You must legally obtain and supply your own original game files to use this software.
+> 
+> **Disclaimer:** This is an independent, fan-made project. It is not affiliated with, associated with, authorized, endorsed by, or in any way officially connected with Nintendo, Game Freak, The Pokémon Company, or any of their subsidiaries or affiliates. All product and company names, trademarks, and registered trademarks are the property of their respective owners. Updates to the repo are at my own discretion, and availability. I am mostly doing this for experience, and to have fun playing the game myself.
+> 
+> **Forked Repo:** This is a forked repository of ['platinum'](https://github.com/xgcModding/platinum) from xgcModding from release 0.3. The reason this fork was created was to resolve a bug with how Game Mode in the Steam Deck/Steam OS was handling mouse click and input events. V1.0 of Lake Trio seems to fix this in my play tests. Additional updates will be made at my discretion and availability. 
+> 
+> **Gen AI:** Lake-Trio does use generative AI to help my workflow. This is my first time working with a forked repo in a decompiled game, C++, and these type of dependencies/libraries. To ensure I am doing things correctly, I am using AI and official documentation along the way, while also getting personal experience in how to use these tools. xgcModding (original repo author, prior to fork) also has a disclaimer about AI usage. I'm still a recent grad and am learning how to work in these type of environments. I will never use gen AI for art, narrative building, game assets, etc.. Purely to assist and learn with code. 
+
+### Third Party Dependencies
 
 | Dependency | License |
 | :--- | :--- |
 | libntr | [MIT License](https://github.com/cybervisi0n/libntr/blob/main/LICENSE) |
 | Dear ImGui | [MIT License](https://github.com/ocornut/imgui/blob/master/LICENSE.txt) |
-| SDL2 | [zlib License](https://www.libsdl.org/license.php) | Repository |
-| Lua | [MIT License](https://www.lua.org/license.html) | 
-| Qt6 | [LGPLv3/GPL License](https://doc.qt.io/qt-6/licensing.html) | 
-
+| SDL2 | [zlib License](https://www.libsdl.org/license.php) |
+| Lua | [MIT License](https://www.lua.org/license.html) |
+| Qt6 | [LGPLv3/GPL License](https://doc.qt.io/qt-6/licensing.html) |
