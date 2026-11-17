@@ -3,15 +3,13 @@
 <img width="640" height="415" alt="lake-trio-logo(2)" src="https://github.com/user-attachments/assets/eb81c005-a9d5-4a92-9366-69a018494c9d" />
 
 ### One Screen S. Intelligent focus.
-Introduced in v2.0.0. A single, expansive display that dynamically adapts to the moments that matter most.
-
-<br>
-
-<img width="800" height="600" alt="one-screen-show" src="https://github.com/user-attachments/assets/007e5973-e7b9-49af-94c9-c4a06b0f86d5" />
-
-<br>
-
+    Introduced in v2.0.0. A single, expansive display that dynamically adapts to the moments that matter most.
 One Screen S presents your game at the largest possible scale while preserving the native 4:3 aspect ratio. Whether you’re entering character names, nicknaming captures, or navigating fast-paced battles, the display intelligently shifts focus to whatever matters most, completely automatically.
+
+<img width="400" height="300" alt="one-screen-show" src="https://github.com/user-attachments/assets/007e5973-e7b9-49af-94c9-c4a06b0f86d5" />
+
+
+
 
 <br><br>
 
