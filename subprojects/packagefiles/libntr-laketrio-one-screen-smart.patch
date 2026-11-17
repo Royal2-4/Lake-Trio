@@ -1,0 +1,124 @@
+diff --git a/include/simulator/config/sim_config.h b/include/simulator/config/sim_config.h
+index cbfcd9b..1828e7b 100644
+--- a/include/simulator/config/sim_config.h
++++ b/include/simulator/config/sim_config.h
+@@ -9,3 +9,4 @@ typedef enum {
+     SIM_CONFIG_SCREEN_LAYOUT_LARGE, /* One large screen and one small screen next to it */
+-    SIM_CONFIG_SCREEN_LAYOUT_SINGLE /* Show one DS screen at a time */
++    SIM_CONFIG_SCREEN_LAYOUT_SINGLE, /* Show one DS screen at a time */
++    SIM_CONFIG_SCREEN_LAYOUT_SINGLE_SMART /* Context-aware single screen (One Screen S) */
+ } SIM_config_screen_layout_type;
+diff --git a/include/simulator/sim.h b/include/simulator/sim.h
+index 2890eca..cf51c83 100644
+--- a/include/simulator/sim.h
++++ b/include/simulator/sim.h
+@@ -76,2 +76,15 @@ BOOL SIM_GetScreensSwapped(void);
+ void SIM_SetScreensSwapped(BOOL swapped);
++
++// One Screen S presentation contexts. These are runtime-only, never saved.
++// Independent bits prevent a battle menu redraw from clearing naming/command state.
++enum {
++    SIM_SMART_SCREEN_BATTLE_COMMANDS = 1u << 0,
++    SIM_SMART_SCREEN_BATTLE_MENU = 1u << 1,
++    SIM_SMART_SCREEN_NAMING = 1u << 2,
++    SIM_SMART_SCREEN_BATTLE_PARTY = 1u << 3,
++};
++void SIM_SmartScreen_SetContext(u32 context, BOOL active);
++void SIM_SmartScreen_ToggleManual(void);
++void SIM_SmartScreen_SetManual(BOOL touchscreenVisible);
++void SIM_SmartScreen_ClearManual(void);
+ u32 SIM_GetInternalResolutionScale(void);
+diff --git a/libraries/sim/src/config/sim_config.c b/libraries/sim/src/config/sim_config.c
+index e98d6d2..16f2435 100644
+--- a/libraries/sim/src/config/sim_config.c
++++ b/libraries/sim/src/config/sim_config.c
+@@ -526,2 +526,5 @@ static const char * ScreenLayoutTypeToString(SIM_config_screen_layout_type layou
+             break;
++        case SIM_CONFIG_SCREEN_LAYOUT_SINGLE_SMART:
++            ret = "single-smart";
++            break;
+     }
+@@ -542,2 +545,4 @@ static SIM_config_screen_layout_type StringToScreenLayoutType(const char * str)
+         ret = SIM_CONFIG_SCREEN_LAYOUT_SINGLE;
++    } else if (strcmp(str, "single-smart") == 0) {
++        ret = SIM_CONFIG_SCREEN_LAYOUT_SINGLE_SMART;
+     }
+diff --git a/libraries/sim/src/sim_main.cpp b/libraries/sim/src/sim_main.cpp
+index aa0c782..0d0e8ca 100644
+--- a/libraries/sim/src/sim_main.cpp
++++ b/libraries/sim/src/sim_main.cpp
+@@ -202,3 +202,4 @@ static void Render(int x, int y, int width, int height, int layout) {
+     glBindVertexArray(vao);
+-    if (layout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE) {
++    if (layout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE ||
++        layout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE_SMART) {
+         // A single DS image already fills the output. Do not split the CRT pass.
+@@ -277,2 +278,6 @@ SIM_config_type s_SIM_config = {};
+ static std::atomic<int> sScreensSwapped{-1};
++// Separate the user's saved legacy screen order from transient Smart-mode state.
++static std::atomic<unsigned int> sSmartScreenContexts{0};
++static std::atomic<int> sSmartScreenManual{-1}; // -1 automatic, 0 main, 1 touch
++
+ static std::atomic<u32> sRequestedInternalResolutionScale{0};
+@@ -827,2 +832,8 @@ SIM_config_type *SIM_GetConfigPtr() { return &s_SIM_config; }
+ BOOL SIM_GetScreensSwapped(void) {
++  if (s_SIM_config.screenLayout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE_SMART) {
++    const int manual = sSmartScreenManual.load();
++    // One Screen S always defaults to the primary display. Only gameplay
++    // contexts or an explicit transient override expose the touchscreen.
++    return manual >= 0 ? manual != 0 : sSmartScreenContexts.load() != 0;
++  }
+   int swapped = sScreensSwapped.load();
+@@ -836,1 +847,30 @@ void SIM_SetScreensSwapped(BOOL swapped) {
++void SIM_SmartScreen_SetContext(u32 context, BOOL active) {
++  const unsigned int known = SIM_SMART_SCREEN_BATTLE_COMMANDS |
++                             SIM_SMART_SCREEN_BATTLE_MENU |
++                             SIM_SMART_SCREEN_NAMING |
++                             SIM_SMART_SCREEN_BATTLE_PARTY;
++  context &= known;
++  if (!context) return;
++  const unsigned int previous = active
++      ? sSmartScreenContexts.fetch_or(context)
++      : sSmartScreenContexts.fetch_and(~context);
++  const unsigned int next = active ? previous | context : previous & ~context;
++  // A manual choice survives intermediate panels. Restore automatic control
++  // only on entering or fully leaving an interaction session.
++  if ((previous == 0) != (next == 0)) sSmartScreenManual.store(-1);
++}
++
++void SIM_SmartScreen_SetManual(BOOL touchscreenVisible) {
++  sSmartScreenManual.store(touchscreenVisible != 0);
++}
++
++void SIM_SmartScreen_ToggleManual(void) {
++  if (s_SIM_config.screenLayout != SIM_CONFIG_SCREEN_LAYOUT_SINGLE_SMART) return;
++  sSmartScreenManual.store(!SIM_GetScreensSwapped());
++}
++
++void SIM_SmartScreen_ClearManual(void) {
++  sSmartScreenManual.store(-1);
++}
++
+ u32 SIM_GetInternalResolutionScale(void) {
+@@ -2844,2 +2884,3 @@ void *SIM_Render(void *arg) {
+     case SIM_CONFIG_SCREEN_LAYOUT_SINGLE:
++    case SIM_CONFIG_SCREEN_LAYOUT_SINGLE_SMART:
+       aspectRatio = 256.0f / 192.0f;
+@@ -2863,3 +2904,4 @@ void *SIM_Render(void *arg) {
+     // touchscreen accepts input only when the sub display is visible.
+-    if (s_SIM_config.screenLayout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE) {
++    if (s_SIM_config.screenLayout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE ||
++        s_SIM_config.screenLayout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE_SMART) {
+       if (SIM_GetScreensSwapped()) {
+diff --git a/libraries/sim/src/sim_screenquads.c b/libraries/sim/src/sim_screenquads.c
+index 76f2e27..ccdd2be 100644
+--- a/libraries/sim/src/sim_screenquads.c
++++ b/libraries/sim/src/sim_screenquads.c
+@@ -527,2 +527,3 @@ G3SIM_Vertex_t * sim_GetScreenQuadArray(SIM_config_screen_layout_type layout, BO
+         case SIM_CONFIG_SCREEN_LAYOUT_SINGLE:
++        case SIM_CONFIG_SCREEN_LAYOUT_SINGLE_SMART:
+             return isSwapped ? s_SingleTouchScreenQuad : s_SingleMainScreenQuad;
+@@ -541,2 +542,3 @@ int sim_GetScreenQuadVertexCount(SIM_config_screen_layout_type layout, BOOL isSw
+         case SIM_CONFIG_SCREEN_LAYOUT_SINGLE:
++        case SIM_CONFIG_SCREEN_LAYOUT_SINGLE_SMART:
+             return 6;

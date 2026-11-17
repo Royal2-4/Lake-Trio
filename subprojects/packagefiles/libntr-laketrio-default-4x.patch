@@ -1,0 +1,14 @@
+diff --git a/libraries/sim/src/config/sim_config.c b/libraries/sim/src/config/sim_config.c
+index 231b404..f359b19 100644
+--- a/libraries/sim/src/config/sim_config.c
++++ b/libraries/sim/src/config/sim_config.c
+@@ -617,7 +617,8 @@ void SIM_Config_LoadDefaults(SIM_config_type * aConfig)
+ #ifdef SDK_BUILD_NX
+     aConfig->internalResolutionScale = 2;
+ #else
+-    aConfig->internalResolutionScale = 1;
++    // Higher default only for desktop builds; user-saved 3DScale still overrides this.
++    aConfig->internalResolutionScale = 4;
+ #endif
+     aConfig->windowSizeMode = 2;
+     aConfig->customWindowWidth = 0;

@@ -359,14 +359,25 @@ static int DashboardStickEvent(SDL_JoystickID instance, int button, int l3, int 
     return 0;
 }
 
-// Swap which DS engine is visible in One Screen mode; the regular
-// Swap Screens setting and saved configuration share the same state.
+// Original One Screen keeps its existing saved swap. One Screen S uses a
+// temporary manual override that automation resets at the next context edge.
 static void DashboardToggleOneScreen(void)
 {
     SIM_config_type *config = SIM_GetConfigPtr();
-    config->swapScreens = !config->swapScreens;
-    SIM_SetScreensSwapped(config->swapScreens);
-    s_saveConfigNextFrame = true;
+    if (config->screenLayout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE_SMART) {
+        SIM_SmartScreen_ToggleManual();
+    } else {
+        config->swapScreens = !config->swapScreens;
+        SIM_SetScreensSwapped(config->swapScreens);
+        s_saveConfigNextFrame = true;
+    }
+}
+
+static bool DashboardIsOneScreenLayout(void)
+{
+    SIM_config_screen_layout_type layout = SIM_GetConfigPtr()->screenLayout;
+    return layout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE ||
+           layout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE_SMART;
 }
 
 // Poll the normalized controller state every frame, including while the
@@ -415,7 +426,7 @@ static void DashboardPollOneScreenChord(void)
         // If all three controls are held, favor L3+R3 (dashboard) over screen swapping.
         if (held && !pad->chordHeld
             && !SDL_GameControllerGetButton(pad->handle, SDL_CONTROLLER_BUTTON_LEFTSTICK)
-            && SIM_GetConfigPtr()->screenLayout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE
+            && DashboardIsOneScreenLayout()
             && !s_menuOpen && !GUI_PadBlocksNavigation()) {
             DashboardToggleOneScreen();
             DashboardShortcutLog("One Screen toggled via R3+LT (device=%d)\n", (int)pad->instance);
@@ -438,7 +449,7 @@ int SIM_GUI_Prj_OverlayHandleEvent(const SDL_Event *event)
             return 1;
         }
         if (event->key.keysym.sym == SDLK_F2
-            && SIM_GetConfigPtr()->screenLayout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE) {
+            && DashboardIsOneScreenLayout()) {
             if (event->type == SDL_KEYDOWN && !event->key.repeat
                 && !s_menuOpen && !GUI_PadBlocksNavigation())
                 DashboardToggleOneScreen();
@@ -560,7 +571,7 @@ static void DashboardDisplaySettings(void)
         "10x (2560x1920)",
     };
     const int renderModeCount = (int)(sizeof(renderModes) / sizeof(renderModes[0]));
-    const char *layoutNames[] = { "Vertical", "Horizontal", "Large Screen", "One Screen" };
+    const char *layoutNames[] = { "Vertical", "Horizontal", "Large Screen", "One Screen", "One Screen S" };
 
     igTextUnformatted("Display & Performance", NULL);
     igSeparator();
@@ -652,19 +663,28 @@ static void DashboardDisplaySettings(void)
     igSeparator();
     igTextUnformatted("Nintendo DS screens", NULL);
     int layout = (int)config->screenLayout;
-    if (layout >= 0 && layout < 4
-        && igCombo_Str_arr("Screen layout", &layout, layoutNames, 4, 4)) {
+    if (layout >= 0 && layout < 5
+        && igCombo_Str_arr("Screen layout", &layout, layoutNames, 5, 5)) {
         config->screenLayout = (SIM_config_screen_layout_type)layout;
+        SIM_SmartScreen_ClearManual();
         s_saveConfigNextFrame = true;
     }
-    bool swapped = config->swapScreens != 0;
-    const bool oneScreen = config->screenLayout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE;
-    if (igCheckbox(oneScreen ? "Show touchscreen" : "Swap screens", &swapped)) {
-        config->swapScreens = swapped;
-        SIM_SetScreensSwapped(swapped);
-        s_saveConfigNextFrame = true;
+    const bool smartScreen = config->screenLayout == SIM_CONFIG_SCREEN_LAYOUT_SINGLE_SMART;
+    const bool oneScreen = DashboardIsOneScreenLayout();
+    bool swapped = smartScreen ? SIM_GetScreensSwapped() != 0 : config->swapScreens != 0;
+    if (igCheckbox(smartScreen ? "Temporarily show touchscreen" :
+                   oneScreen ? "Show touchscreen" : "Swap screens", &swapped)) {
+        if (smartScreen) {
+            SIM_SmartScreen_SetManual(swapped);
+        } else {
+            config->swapScreens = swapped;
+            SIM_SetScreensSwapped(swapped);
+            s_saveConfigNextFrame = true;
+        }
     }
-    if (oneScreen)
+    if (smartScreen)
+        igTextWrapped("One Screen S automatically shows battle choices and naming input. F2 or R3 + LT overrides temporarily; Poketch remains manual.");
+    else if (oneScreen)
         igTextWrapped("Switch screens: F2 or R3 + LT. The touchscreen accepts input only when displayed.");
 
     igSpacing();

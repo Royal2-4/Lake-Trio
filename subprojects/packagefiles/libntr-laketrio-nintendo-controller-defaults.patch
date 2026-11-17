@@ -1,0 +1,49 @@
+diff --git a/libraries/sim/src/config/sim_config.c b/libraries/sim/src/config/sim_config.c
+index 16f2435..312fe7f 100644
+--- a/libraries/sim/src/config/sim_config.c
++++ b/libraries/sim/src/config/sim_config.c
+@@ -580,3 +580,8 @@ void SIM_Config_LoadDefaults(SIM_config_type * aConfig)
+     aConfig->undergroundRadarKey = SDLK_s;
+-    aConfig->undergroundRadarJoyKey = 7; /* Default L3 mapping, matching JOY_L3. */
++#ifdef SDK_BUILD_NX
++    aConfig->undergroundRadarJoyKey = 7;
++#else
++    // Follow the new desktop L3 default; button 7 is now Start.
++    aConfig->undergroundRadarJoyKey = 8;
++#endif
+     aConfig->swapScreensKey = SDLK_F12;
+@@ -648,2 +653,4 @@ void SIM_Config_LoadDefaults(SIM_config_type * aConfig)
+     aConfig->padSettings.guiKey = SDLK_F1;
++#ifdef SDK_BUILD_NX
++    // Keep the existing native Switch mapping unchanged.
+     aConfig->padSettings.aJoyKey = 0;
+@@ -652,3 +659,2 @@ void SIM_Config_LoadDefaults(SIM_config_type * aConfig)
+     aConfig->padSettings.yJoyKey = 3;
+-#ifdef SDK_BUILD_NX
+     aConfig->padSettings.upJoyKey = 13;
+@@ -668,2 +674,7 @@ void SIM_Config_LoadDefaults(SIM_config_type * aConfig)
+ #else
++    // Desktop/SteamOS default: Nintendo-style face buttons in SDL raw indices.
++    aConfig->padSettings.aJoyKey = 1;
++    aConfig->padSettings.bJoyKey = 0;
++    aConfig->padSettings.xJoyKey = 3;
++    aConfig->padSettings.yJoyKey = 2;
+     aConfig->padSettings.upJoyKey = SDL_HAT_UP | SIM_CONFIG_JOY_HAT_MASK;
+@@ -672,10 +683,11 @@ void SIM_Config_LoadDefaults(SIM_config_type * aConfig)
+     aConfig->padSettings.rightJoyKey = SDL_HAT_RIGHT | SIM_CONFIG_JOY_HAT_MASK;
+-    aConfig->padSettings.lJoyKey = 9;
+-    aConfig->padSettings.rJoyKey = 10;
++    aConfig->padSettings.lJoyKey = 4;
++    aConfig->padSettings.rJoyKey = 5;
+     aConfig->padSettings.l2JoyKey = 4 | SIM_CONFIG_JOY_AXIS_PLUS_MASK;
+     aConfig->padSettings.r2JoyKey = 5 | SIM_CONFIG_JOY_AXIS_PLUS_MASK;
+-    aConfig->padSettings.l3JoyKey = 7;
+-    aConfig->padSettings.r3JoyKey = 8;
+-    aConfig->padSettings.startJoyKey = 6;
+-    aConfig->padSettings.selectJoyKey = 4;
++    // Old L3=7 would conflict with the new Start=7 default.
++    aConfig->padSettings.l3JoyKey = 8;
++    aConfig->padSettings.r3JoyKey = 9;
++    aConfig->padSettings.startJoyKey = 7;
++    aConfig->padSettings.selectJoyKey = 6;
+ #endif

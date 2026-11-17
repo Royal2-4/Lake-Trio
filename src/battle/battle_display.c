@@ -1,5 +1,9 @@
 #include "battle/battle_display.h"
 
+#ifdef SDK_PORT
+#include <simulator/sim.h>
+#endif
+
 #include <nitro.h>
 #include <string.h>
 
@@ -4441,6 +4445,12 @@ static void Task_PlayerShowPartyMenu(SysTask *task, void *data)
 
     switch (partyMenuData->state) {
     case 0:
+#ifdef SDK_PORT
+        // The party UI is an independent fullscreen sub-application. Forced
+        // replacements arrive here after turn selection has already ended,
+        // so they need a separate context from the battle-command menus.
+        SIM_SmartScreen_SetContext(SIM_SMART_SCREEN_BATTLE_PARTY, TRUE);
+#endif
         Window *window = BattleSystem_GetWindow(partyMenuData->battleSys, 0);
 
         Window_FillTilemap(window, 0xFF);
@@ -4572,6 +4582,11 @@ static void Task_PlayerShowPartyMenu(SysTask *task, void *data)
             }
 
             BattleController_EmitClearCommand(partyMenuData->battleSys, partyMenuData->battler, partyMenuData->command);
+#ifdef SDK_PORT
+            // Keep the sub display visible through the party UI's closing
+            // fade; release it only after the selection result is delivered.
+            SIM_SmartScreen_SetContext(SIM_SMART_SCREEN_BATTLE_PARTY, FALSE);
+#endif
             Heap_Free(partyMenuData->battlePartyCtx->party);
             Heap_Free(partyMenuData->battlePartyCtx);
             Heap_Free(data);
