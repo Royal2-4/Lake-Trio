@@ -14,6 +14,10 @@
 #include "port/debug_field.h"
 #include "discord_presence.h"
 
+// libntr owns the font atlas and recreates fonts on DPI changes. The regular
+// system sans-serif is loaded there, then used only while drawing the dashboard.
+extern ImFont *LakeTrio_GUI_GetDashboardFont(void);
+
 // The existing libntr input editor, made embeddable by our panel patch.
 extern void GUI_PadDrawBindings(void);
 extern void GUI_PadCancelCapture(void);
@@ -89,10 +93,8 @@ typedef struct DashboardOneScreenPad {
     bool chordHeld;
 } DashboardOneScreenPad;
 static DashboardOneScreenPad s_oneScreenPads[LAKE_TRIO_ONESCREEN_MAX_GAMEPADS];
-// Controller focus regions: header actions, categories, and active page.
-// A on a category enters its page. LB/RB cycle regions; B goes back.
-static bool s_inHeader;
-static bool s_focusHeaderNextFrame;
+// A on a tab enters its page; LB/RB select adjacent top tabs.
+// B from page controls returns to the selected tab before dismissing the UI.
 static bool s_leftShoulderHeld;
 static bool s_rightShoulderHeld;
 static bool s_focusNavOnOpen;
@@ -132,16 +134,12 @@ static void DashboardSetOpen(bool open)
         if (s_menuPage == 2) LakeTrio_PadDraftBegin();
         LakeTrio_GUI_GetNavButtons(&s_lastNavBindA, &s_lastNavBindB);
         s_inPage = false;
-        s_inHeader = false;
-        s_focusHeaderNextFrame = false;
         s_focusNavOnOpen = true;
         s_focusPageNextFrame = false;
         s_leftShoulderHeld = s_rightShoulderHeld = false;
     } else {
         LakeTrio_PadDraftDiscard();
         s_inPage = false;
-        s_inHeader = false;
-        s_focusHeaderNextFrame = false;
         s_focusPageNextFrame = false;
         s_leftShoulderHeld = s_rightShoulderHeld = false;
         s_backHeld = false;
@@ -161,8 +159,8 @@ static void DashboardFocusPageItem(void)
     }
 }
 
-// B leaves either the header or the active page for the category list;
-// B from categories closes the dashboard. Popups and binding capture win.
+// B returns from active page controls to the top tab strip. Another B
+// closes the dashboard. Popups and binding capture always take priority.
 static int DashboardBackEvent(bool pressed)
 {
     if (!pressed) {
@@ -178,10 +176,8 @@ static int DashboardBackEvent(bool pressed)
     }
     if (igIsPopupOpen_Str(NULL, ImGuiPopupFlags_AnyPopup)) return 0;
     s_backHeld = true;
-    if (s_inPage || s_inHeader) {
+    if (s_inPage) {
         s_inPage = false;
-        s_inHeader = false;
-        s_focusHeaderNextFrame = false;
         s_focusPageNextFrame = false;
         s_focusNavOnOpen = true;
     } else {
@@ -190,24 +186,28 @@ static int DashboardBackEvent(bool pressed)
     return 1;
 }
 
-// Selecting a category always enters its corresponding content panel.
-// The next selectable ImGui item in that child receives controller focus.
-static void DashboardEnterPage(int page)
+// Keep the existing internal page IDs: 0=Game, 1=Display, 2=Controls,
+// 3=Audio. Moving away from Controls must discard unapplied draft edits.
+static void DashboardSelectPage(int page, bool enter)
 {
     if (s_menuPage == 2 && page != 2) LakeTrio_PadDraftDiscard();
     if (s_menuPage != 2 && page == 2) LakeTrio_PadDraftBegin();
     if (page == 2) LakeTrio_GUI_GetNavButtons(&s_lastNavBindA, &s_lastNavBindB);
     s_menuPage = page;
-    s_inPage = true;
-    s_inHeader = false;
-    s_focusHeaderNextFrame = false;
-    s_focusNavOnOpen = false;
-    s_focusPageNextFrame = true;
+    s_inPage = enter;
+    s_focusNavOnOpen = !enter;
+    s_focusPageNextFrame = enter;
 }
 
-// LB/RB moves among header, category list, and selected page. This gives the
-// header buttons an explicit gamepad focus route even though they live in
-// the dashboard's root window rather than a child panel.
+// Mouse and A on a tab both enter the corresponding settings panel.
+static void DashboardEnterPage(int page)
+{
+    DashboardSelectPage(page, true);
+}
+
+// LB/RB navigates the *horizontal tabs* rather than cycling focus regions.
+// It displays the new category, focuses its tab, and lets A enter its controls.
+// B from a page returns to the top bar, consistent with normal controller nav.
 static int DashboardShoulderEvent(bool right, bool pressed)
 {
     bool *held = right ? &s_rightShoulderHeld : &s_leftShoulderHeld;
@@ -216,18 +216,18 @@ static int DashboardShoulderEvent(bool right, bool pressed)
         return 0;
     }
     if (!s_menuOpen || GUI_PadBlocksNavigation()) return 0;
-    if (*held) return 1;
+    if (*held) return 1; // Dedupe raw joystick and SDL controller streams.
     *held = true;
-    // A modal or dropdown owns focus until dismissed; do not leave it.
+    // Do not switch tabs while a confirmation, dropdown, or binding owns focus.
     if (s_quitPromptOpen || igIsPopupOpen_Str(NULL, ImGuiPopupFlags_AnyPopup)) return 1;
 
-    const int current = s_inHeader ? 0 : (s_inPage ? 2 : 1);
-    const int next = (current + (right ? 1 : 2)) % 3;
-    s_inHeader = next == 0;
-    s_inPage = next == 2;
-    s_focusHeaderNextFrame = next == 0;
-    s_focusNavOnOpen = next == 1;
-    s_focusPageNextFrame = next == 2;
+    const int pages[] = { 0, 1, 3, 2 }; // Game, Display, Audio, Controls.
+    int selected = 0;
+    for (int i = 0; i < 4; ++i) {
+        if (pages[i] == s_menuPage) { selected = i; break; }
+    }
+    const int next = (selected + (right ? 1 : 3)) % 4;
+    DashboardSelectPage(pages[next], false);
     return 1;
 }
 
@@ -564,6 +564,8 @@ static int DashboardAddResolution(DashboardResolution *entries, int count,
     return count + 1;
 }
 
+static void DashboardSectionTitle(const char *title);
+
 static void DashboardDisplaySettings(void)
 {
     SIM_config_type *config = SIM_GetConfigPtr();
@@ -584,14 +586,16 @@ static void DashboardDisplaySettings(void)
     const int renderModeCount = (int)(sizeof(renderModes) / sizeof(renderModes[0]));
     const char *layoutNames[] = { "Vertical", "Horizontal", "Large Screen", "One Screen", "One Screen S" };
 
-    igTextUnformatted("Display & Performance", NULL);
-    igSeparator();
+    DashboardSectionTitle("DISPLAY & PERFORMANCE");
     // ROM import initializes the simulator's normal update/rendering path.
     if (SIM_GetMissingResourcePath() != NULL) {
         igTextWrapped("Import ROM data first; display preferences are available before starting a new game.");
         return;
     }
     DashboardFocusPageItem();
+    ImVec2 displaySpace;
+    igGetContentRegionAvail(&displaySpace);
+    igPushItemWidth(displaySpace.x > 760.0f ? 520.0f : displaySpace.x * 0.62f);
     int fps = (int)SIM_GetFrameRateMode();
     if (fps >= 0 && fps < 4 && igCombo_Str_arr("Frame rate", &fps, fpsModes, 4, 4)) {
         SIM_RequestFrameRateMode((u32)fps);
@@ -709,6 +713,7 @@ static void DashboardDisplaySettings(void)
     igTextWrapped("Internal 3D resolution changes rendering quality, not the window resolution. Your in-game Display menu remains available.");
     if (config->frameRateMode == SIM_CONFIG_FRAME_RATE_INF)
         igTextWrapped("Unlimited FPS overrides VSync in the simulator.");
+    igPopItemWidth();
 }
 
 // Audio routing is owned by the simulator's SDL callback, not the OS mixer.
@@ -732,8 +737,7 @@ static void DashboardAudioSettings(void)
         }
     }
 
-    igTextUnformatted("Audio", NULL);
-    igSeparator();
+    DashboardSectionTitle("AUDIO & OUTPUT");
     const char *active = LakeTrio_Audio_GetOutputDevice();
     int selected = 0;
     bool found = !active || !active[0];
@@ -748,6 +752,9 @@ static void DashboardAudioSettings(void)
         }
     }
     DashboardFocusPageItem();
+    ImVec2 audioSpace;
+    igGetContentRegionAvail(&audioSpace);
+    igPushItemWidth(audioSpace.x > 760.0f ? 520.0f : audioSpace.x * 0.62f);
     if (igCombo_Str_arr("Output device", &selected, devices, count, count < 7 ? count : 7)) {
         const char *requested = selected == 0 ? NULL : devices[selected];
         if (LakeTrio_Audio_SelectOutputDevice(requested)) {
@@ -770,52 +777,65 @@ static void DashboardAudioSettings(void)
     if (igSliderInt("Master volume", &volume, 0, 200, "%d%%", ImGuiSliderFlags_AlwaysClamp))
         LakeTrio_Audio_SetVolume(volume);
     igTextWrapped("100%% is normal volume. Values above 100%% amplify audio in software and can cause distortion or clipping. This does not change system volume.");
+    igPopItemWidth();
 }
-// Lake-Trio's dashboard-only palette. Exact requested colors:
-// background #212830, accent #F29EC4. The render frame itself remains opaque;
-// these style changes are popped before any other simulator UI is drawn.
+// Dashboard typography is scaled within the dashboard windows only, leaving
+// the emulator's font atlas and all other ImGui windows unchanged.
+static void DashboardSectionTitle(const char *title)
+{
+    igSetWindowFontScale(1.35f);
+    igTextUnformatted(title, NULL);
+    igSetWindowFontScale(1.0f);
+    igSeparator();
+}
+
+// Solid background #14222F and Lake Trio accent #F29EC4. Theme changes are
+// balanced in DashboardPopTheme to avoid affecting the simulator's other UI.
 static void DashboardPushTheme(void)
 {
-    igPushStyleVar_Vec2(ImGuiStyleVar_WindowPadding, (ImVec2){ 20.0f, 20.0f });
-    igPushStyleVar_Float(ImGuiStyleVar_WindowRounding, 0.0f); // Full viewport.
-    igPushStyleVar_Float(ImGuiStyleVar_ChildRounding, 10.0f);
-    igPushStyleVar_Float(ImGuiStyleVar_FrameRounding, 8.0f);
+    igPushStyleVar_Vec2(ImGuiStyleVar_WindowPadding, (ImVec2){ 20.0f, 18.0f });
+    igPushStyleVar_Float(ImGuiStyleVar_WindowRounding, 0.0f);
+    igPushStyleVar_Float(ImGuiStyleVar_ChildRounding, 6.0f);
+    igPushStyleVar_Float(ImGuiStyleVar_FrameRounding, 6.0f);
     igPushStyleVar_Float(ImGuiStyleVar_PopupRounding, 8.0f);
     igPushStyleVar_Float(ImGuiStyleVar_ScrollbarRounding, 7.0f);
     igPushStyleVar_Float(ImGuiStyleVar_GrabRounding, 6.0f);
-    igPushStyleColor_Vec4(ImGuiCol_Text, (ImVec4){ 0.95f, 0.96f, 0.98f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_TextDisabled, (ImVec4){ 0.70f, 0.74f, 0.79f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_WindowBg, (ImVec4){ 33/255.0f, 40/255.0f, 48/255.0f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_ChildBg, (ImVec4){ 42/255.0f, 51/255.0f, 61/255.0f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_PopupBg, (ImVec4){ 42/255.0f, 51/255.0f, 61/255.0f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_Border, (ImVec4){ 0.34f, 0.40f, 0.46f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_FrameBg, (ImVec4){ 0.23f, 0.28f, 0.33f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_FrameBgHovered, (ImVec4){ 0.34f, 0.31f, 0.38f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_FrameBgActive, (ImVec4){ 0.42f, 0.32f, 0.41f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_Button, (ImVec4){ 0.23f, 0.29f, 0.34f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_ButtonHovered, (ImVec4){ 0.44f, 0.31f, 0.40f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_ButtonActive, (ImVec4){ 0.58f, 0.38f, 0.49f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_Header, (ImVec4){ 0.40f, 0.30f, 0.38f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_HeaderHovered, (ImVec4){ 0.50f, 0.34f, 0.45f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_HeaderActive, (ImVec4){ 0.60f, 0.40f, 0.51f, 1.0f });
+    igPushStyleVar_Vec2(ImGuiStyleVar_FramePadding, (ImVec2){ 12.0f, 9.0f });
+    igPushStyleVar_Vec2(ImGuiStyleVar_ItemSpacing, (ImVec2){ 12.0f, 10.0f });
+    igPushStyleVar_Vec2(ImGuiStyleVar_CellPadding, (ImVec2){ 12.0f, 8.0f });
+    igPushStyleColor_Vec4(ImGuiCol_Text, (ImVec4){ 0.96f, 0.97f, 0.98f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_TextDisabled, (ImVec4){ 0.68f, 0.75f, 0.80f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_WindowBg, (ImVec4){ 20/255.0f, 34/255.0f, 47/255.0f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_ChildBg, (ImVec4){ 20/255.0f, 34/255.0f, 47/255.0f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_PopupBg, (ImVec4){ 27/255.0f, 46/255.0f, 62/255.0f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_Border, (ImVec4){ 0.24f, 0.34f, 0.42f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_FrameBg, (ImVec4){ 0.14f, 0.22f, 0.29f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_FrameBgHovered, (ImVec4){ 0.20f, 0.30f, 0.39f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_FrameBgActive, (ImVec4){ 0.24f, 0.34f, 0.43f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_Button, (ImVec4){ 0.15f, 0.24f, 0.32f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_ButtonHovered, (ImVec4){ 0.27f, 0.35f, 0.44f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_ButtonActive, (ImVec4){ 0.36f, 0.29f, 0.40f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_Header, (ImVec4){ 0.20f, 0.29f, 0.38f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_HeaderHovered, (ImVec4){ 0.28f, 0.36f, 0.45f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_HeaderActive, (ImVec4){ 0.35f, 0.39f, 0.49f, 1.0f });
     igPushStyleColor_Vec4(ImGuiCol_CheckMark, (ImVec4){ 242/255.0f, 158/255.0f, 196/255.0f, 1.0f });
     igPushStyleColor_Vec4(ImGuiCol_SliderGrab, (ImVec4){ 242/255.0f, 158/255.0f, 196/255.0f, 1.0f });
     igPushStyleColor_Vec4(ImGuiCol_SliderGrabActive, (ImVec4){ 1.0f, 0.77f, 0.88f, 1.0f });
     igPushStyleColor_Vec4(ImGuiCol_NavCursor, (ImVec4){ 242/255.0f, 158/255.0f, 196/255.0f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_Separator, (ImVec4){ 0.32f, 0.38f, 0.44f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_ScrollbarBg, (ImVec4){ 33/255.0f, 40/255.0f, 48/255.0f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_ScrollbarGrab, (ImVec4){ 0.38f, 0.43f, 0.49f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_ScrollbarGrabHovered, (ImVec4){ 0.52f, 0.41f, 0.49f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_ScrollbarGrabActive, (ImVec4){ 0.65f, 0.48f, 0.57f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_TableHeaderBg, (ImVec4){ 0.26f, 0.32f, 0.37f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_TableRowBg, (ImVec4){ 0.18f, 0.22f, 0.27f, 1.0f });
-    igPushStyleColor_Vec4(ImGuiCol_TableRowBgAlt, (ImVec4){ 0.20f, 0.25f, 0.30f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_Separator, (ImVec4){ 0.26f, 0.36f, 0.45f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_ScrollbarBg, (ImVec4){ 20/255.0f, 34/255.0f, 47/255.0f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_ScrollbarGrab, (ImVec4){ 0.26f, 0.35f, 0.44f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_ScrollbarGrabHovered, (ImVec4){ 0.39f, 0.43f, 0.52f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_ScrollbarGrabActive, (ImVec4){ 0.52f, 0.47f, 0.58f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_TableHeaderBg, (ImVec4){ 0.19f, 0.30f, 0.39f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_TableRowBg, (ImVec4){ 0.10f, 0.17f, 0.23f, 1.0f });
+    igPushStyleColor_Vec4(ImGuiCol_TableRowBgAlt, (ImVec4){ 0.13f, 0.21f, 0.28f, 1.0f });
 }
 
 static void DashboardPopTheme(void)
 {
     igPopStyleColor(27);
-    igPopStyleVar(7);
+    igPopStyleVar(10);
 }
 
 // Called once per ImGui frame by libntr after pending simulator requests have
@@ -840,21 +860,16 @@ void SIM_GUI_Prj_Toolbar(int canImport)
 
     const float width = io->DisplaySize.x;
     const float height = io->DisplaySize.y;
-    // Independent child regions reset ImGui's own layout cursor for each
-    // column. Setting the root cursor once isn't enough: widgets like
-    // Separator() can reset its X back to the root window's left margin.
-    const bool sideNav = width >= 540.0f;
-    const bool tabRow = !sideNav && width >= 380.0f;
-    const float outerMargin = 12.0f;
+    // A full-width horizontal tab strip replaces the old left navigation.
+    // Very narrow windows use two rows so tabs remain controller-friendly.
+    const float outerMargin = width < 480.0f ? 12.0f : 20.0f;
     const float gutter = 12.0f;
-    const float navWidth = 180.0f;
-    // Keep both header buttons clear of the navigation region on narrow views.
-    const bool compactHeader = width < 390.0f;
-    const float navTop = compactHeader ? 116.0f : 76.0f;
-    const float navHeight = sideNav ? height - navTop - outerMargin : (tabRow ? 58.0f : 206.0f);
-    const float pageX = sideNav ? outerMargin + navWidth + gutter : outerMargin;
-    const float pageY = sideNav ? navTop : navTop + navHeight + gutter;
-    const float pageWidth = width - pageX - outerMargin;
+    const int tabColumns = width >= 460.0f ? 4 : 2;
+    const float navTop = 70.0f;
+    const float navHeight = tabColumns == 4 ? 66.0f : 124.0f;
+    const float pageX = outerMargin;
+    const float pageY = navTop + navHeight + gutter;
+    const float pageWidth = width - outerMargin * 2.0f;
     const float pageHeight = height - pageY - outerMargin;
     ImVec2 origin = { 0, 0 };
     ImVec2 size = { width, height };
@@ -867,109 +882,118 @@ void SIM_GUI_Prj_Toolbar(int canImport)
     DashboardPushTheme();
 
     if (igBegin("Lake-Trio##dashboard", NULL, flags)) {
-        igTextUnformatted("Lake Trio", NULL);
-        // Resume and Quit are adjacent on normal viewports; stack them on
-        // narrow windows so neither overlaps the navigation panel.
-        if (compactHeader) igSpacing();
-        else igSameLine(0.0f, 20.0f);
-        // Focus the first header action on the next frame after LB/RB.
-        // D-pad right/down then reaches Quit Game using standard ImGui nav.
-        if (s_focusHeaderNextFrame) {
-            igSetKeyboardFocusHere(0);
-            s_focusHeaderNextFrame = false;
-        }
-        if (igButton("Resume", (ImVec2){ 115.0f, 32.0f })) {
-            DashboardSetOpen(false);
-        }
-        if (!compactHeader) igSameLine(0.0f, 8.0f);
-        if (igButton("Quit Game", (ImVec2){ 115.0f, 32.0f })) {
-            s_quitPromptOpen = true;
-            s_cancelQuitPrompt = false;
-            igOpenPopup_Str("Quit Lake Trio?", 0);
-        }
+        // Use the optional readable system font without changing other ImGui UI.
+        ImFont *dashboardFont = LakeTrio_GUI_GetDashboardFont();
+        if (dashboardFont) igPushFont(dashboardFont);
+        // Increase dashboard text size only; the rest of ImGui is unchanged.
+        igSetCursorPos((ImVec2){ outerMargin, 16.0f });
+        igSetWindowFontScale(1.55f);
+        igTextUnformatted("LAKE TRIO", NULL);
+        igSetWindowFontScale(1.18f);
+
+        igSetCursorPos((ImVec2){ outerMargin, navTop - 14.0f });
         igSeparator();
 
-        // Send SDL_QUIT through the same event loop used by window-close.
-        // The confirmation prevents accidentally ending an unsaved session.
-        if (igBeginPopupModal("Quit Lake Trio?", &s_quitPromptOpen,
-                ImGuiWindowFlags_AlwaysAutoResize)) {
-            igTextWrapped("Quit Lake Trio? Unsaved game progress may be lost.");
-            if (s_cancelQuitPrompt) {
-                s_cancelQuitPrompt = false;
-                s_quitPromptOpen = false;
-                igCloseCurrentPopup();
-            } else {
-                if (igButton("Cancel", (ImVec2){ 115.0f, 32.0f })) {
-                    s_quitPromptOpen = false;
-                    igCloseCurrentPopup();
-                }
-                igSameLine(0.0f, 8.0f);
-                if (igButton("Quit##confirm", (ImVec2){ 115.0f, 32.0f })) {
-                    SIM_GUI_Prj_RequestQuit();
-                    s_quitPromptOpen = false;
-                    igCloseCurrentPopup();
-                }
-            }
-            igEndPopup();
-        }
-
-        const char *labels[] = { "Game", "Display", "Controls", "Audio" };
+        // Visual order is Game / Display / Audio / Controls. Keep the original
+        // page IDs (especially Controls=2) for drafts and gamepad navigation.
+        const char *tabLabels[] = { "Game", "Display", "Audio", "Controls" };
+        const int tabPages[] = { 0, 1, 3, 2 };
+        const float navWidth = width - outerMargin * 2.0f;
+        const float tabGap = 10.0f;
         igSetCursorPos((ImVec2){ outerMargin, navTop });
-        if (igBeginChild_Str("##dashboard_nav", (ImVec2){ sideNav ? navWidth : width - outerMargin * 2.0f, navHeight }, 1, 0)) {
-            const float cellWidth = sideNav ? navWidth - 16.0f
-                : tabRow ? (width - outerMargin * 2.0f - 32.0f - 16.0f) / 4.0f
-                : width - outerMargin * 2.0f - 16.0f;
+        igPushStyleVar_Vec2(ImGuiStyleVar_WindowPadding, (ImVec2){ 5.0f, 5.0f });
+        if (igBeginChild_Str("##dashboard_nav", (ImVec2){ navWidth, navHeight }, 0,
+                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+            const float cellWidth = (navWidth - 10.0f - (tabColumns - 1) * tabGap) / tabColumns;
             for (int i = 0; i < 4; ++i) {
-                if (i > 0 && tabRow) igSameLine(0.0f, 8.0f);
-                const bool selected = i == s_menuPage;
+                if (i > 0 && i % tabColumns != 0) igSameLine(0.0f, tabGap);
+                const bool selected = tabPages[i] == s_menuPage;
                 if (selected) {
                     igPushStyleColor_Vec4(ImGuiCol_Button,
                         (ImVec4){ 242/255.0f, 158/255.0f, 196/255.0f, 1.0f });
                     igPushStyleColor_Vec4(ImGuiCol_Text,
-                        (ImVec4){ 33/255.0f, 40/255.0f, 48/255.0f, 1.0f });
+                        (ImVec4){ 20/255.0f, 34/255.0f, 47/255.0f, 1.0f });
                 }
                 if (s_focusNavOnOpen && selected) {
                     igSetKeyboardFocusHere(0);
                     s_focusNavOnOpen = false;
                 }
-                const bool clicked = igButton(labels[i], (ImVec2){ cellWidth, 38.0f });
+                const bool clicked = igButton(tabLabels[i], (ImVec2){ cellWidth, 50.0f });
                 if (selected) igPopStyleColor(2);
-                if (clicked) DashboardEnterPage(i);
+                if (clicked) DashboardEnterPage(tabPages[i]);
             }
         }
         igEndChild();
+        igPopStyleVar(1);
 
         if (pageWidth > 32.0f && pageHeight > 32.0f) {
             igSetCursorPos((ImVec2){ pageX, pageY });
-            if (igBeginChild_Str("##dashboard_page", (ImVec2){ pageWidth, pageHeight }, 1, 0)) {
+            if (igBeginChild_Str("##dashboard_page", (ImVec2){ pageWidth, pageHeight }, 0, 0)) {
                 switch (s_menuPage) {
-                case 0:
-                    igTextUnformatted("Game", NULL);
-                    igSeparator();
-                    igTextWrapped("Import the ROM data needed by the existing game installation.");
+                case 0: {
+                    DashboardSectionTitle("GAME");
                     DashboardFocusPageItem();
-                    if (igButton("Import", (ImVec2){ 170.0f, 38.0f }) && canImport) {
+                    if (igButton("Resume", (ImVec2){ 250.0f, 52.0f })) {
+                        DashboardSetOpen(false);
+                    }
+                    igSpacing();
+                    // A successful import survives app restarts: the simulator
+                    // has no missing-resource path once its assets are loaded.
+                    const bool imported = SIM_GetMissingResourcePath() == NULL;
+                    if (igButton(imported ? "Change Import" : "Import",
+                            (ImVec2){ 250.0f, 52.0f }) && canImport) {
                         PlatformMenu_RequestAction(LAKE_TRIO_MENU_IMPORT_ROM);
                         DashboardSetOpen(false);
                     }
                     if (!canImport) igTextUnformatted("Import is currently unavailable.", NULL);
+                    igSpacing();
+                    if (igButton("Quit Game", (ImVec2){ 250.0f, 52.0f })) {
+                        s_quitPromptOpen = true;
+                        s_cancelQuitPrompt = false;
+                        igOpenPopup_Str("Quit Lake Trio?", 0);
+                    }
+                    igSpacing();
+                    igTextWrapped("Import your ROM data to play. Changing an import replaces the installed game assets, not your save file.");
+
+                    // Same SDL_QUIT confirmation as the former header button.
+                    if (igBeginPopupModal("Quit Lake Trio?", &s_quitPromptOpen,
+                            ImGuiWindowFlags_AlwaysAutoResize)) {
+                        igTextWrapped("Quit Lake Trio? Unsaved game progress may be lost.");
+                        if (s_cancelQuitPrompt) {
+                            s_cancelQuitPrompt = false;
+                            s_quitPromptOpen = false;
+                            igCloseCurrentPopup();
+                        } else {
+                            if (igButton("Cancel", (ImVec2){ 150.0f, 44.0f })) {
+                                s_quitPromptOpen = false;
+                                igCloseCurrentPopup();
+                            }
+                            igSameLine(0.0f, 8.0f);
+                            if (igButton("Quit##confirm", (ImVec2){ 150.0f, 44.0f })) {
+                                SIM_GUI_Prj_RequestQuit();
+                                s_quitPromptOpen = false;
+                                igCloseCurrentPopup();
+                            }
+                        }
+                        igEndPopup();
+                    }
                     break;
+                }
                 case 1:
                     DashboardDisplaySettings();
                     break;
                 case 2:
-                    igTextUnformatted("Controls", NULL);
-                    igSeparator();
+                    DashboardSectionTitle("CONTROLS & INPUT");
                     igTextWrapped("Edit bindings below, then select Apply Changes. Until applied, the existing game and dashboard controls remain active. Switching categories or closing the dashboard discards unapplied edits.");
                     if (LakeTrio_PadDraftDirty()) igTextUnformatted("Unapplied changes", NULL);
                     if (!LakeTrio_PadDraftCanApply())
                         igTextWrapped("Assign both Controller A and B to different face buttons before applying.");
                     DashboardFocusPageItem();
-                    if (igButton("Apply Changes", (ImVec2){ 150.0f, 32.0f })) {
+                    if (igButton("Apply Changes", (ImVec2){ 190.0f, 44.0f })) {
                         if (LakeTrio_PadDraftCanApply()) LakeTrio_PadDraftApply();
                     }
-                    if (pageWidth >= 390.0f) igSameLine(0.0f, 8.0f);
-                    if (igButton("Discard Changes", (ImVec2){ 150.0f, 32.0f }))
+                    if (pageWidth >= 450.0f) igSameLine(0.0f, 12.0f);
+                    if (igButton("Discard Changes", (ImVec2){ 190.0f, 44.0f }))
                         LakeTrio_PadDraftBegin();
                     igSeparator();
                     GUI_PadDrawBindings();
@@ -1002,6 +1026,7 @@ void SIM_GUI_Prj_Toolbar(int canImport)
             }
             igEndChild();
         }
+        if (dashboardFont) igPopFont();
     }
     igEnd();
     DashboardPopTheme();
