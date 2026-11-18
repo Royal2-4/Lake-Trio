@@ -24,7 +24,7 @@ Say goodbye to legacy menus. Lake Trio introduces a fluid, controller-friendly d
 
 <br>
 
-<img width="750" height="200" alt="Screenshot 2026-11-16 220602" src="https://github.com/user-attachments/assets/65dcbe67-b292-45bc-89fa-84e7052d024d" />
+<img width="477" height="294" alt="lake-trio-dash" src="https://github.com/user-attachments/assets/65d48694-ec35-4471-abbf-d6d12970e1bc" />
 
 <br><br>
 
