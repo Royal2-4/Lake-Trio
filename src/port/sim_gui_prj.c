@@ -12,6 +12,7 @@
 #include "sim_gui_prj.h"
 
 #include "port/debug_field.h"
+#include "discord_presence.h"
 
 // The existing libntr input editor, made embeddable by our panel patch.
 extern void GUI_PadDrawBindings(void);
@@ -811,6 +812,7 @@ static void DashboardPopTheme(void)
 // been applied. Save on the following frame so game.ini receives new values.
 void SIM_GUI_Prj_Toolbar(int canImport)
 {
+    DiscordPresence_Tick(SDL_GetTicks());
     if (!DashboardEnabled()) return;
     DashboardPollOneScreenChord();
     // Enable Dear ImGui's existing SDL2 gamepad navigation while the overlay

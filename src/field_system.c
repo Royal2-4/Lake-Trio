@@ -42,6 +42,7 @@
 #ifdef SDK_PORT
 #include "port/autosave.h"
 #include "port/debug_field.h"
+#include "port/discord_presence.h"
 #endif
 
 FS_EXTERN_OVERLAY(overlay5);
@@ -194,6 +195,7 @@ static void TeardownFieldSystem(ApplicationManager *appMan)
 
 #ifdef SDK_PORT
     FieldAutosave_Init(NULL);
+    DiscordPresence_ClearLocation();
 #endif
 
     MapMatrix_Free(fieldSystem->mapMatrix);

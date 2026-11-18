@@ -1024,6 +1024,7 @@ pokeplatinum_c += files(
     'port/game_speed.c',
     'port/camera_distance.c',
     'port/sim_gui_prj.c',
+    'port/discord_presence.c',
     'port/gui_createitem.c',
     'port/gui_createmon.c',
     'port/gui_fieldinfo.c',
