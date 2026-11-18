@@ -38,6 +38,9 @@ static uint32_t s_last_send;
 static uint32_t s_nonce;
 static time_t s_started;
 static char s_location[120];
+static bool s_battle_active;
+static char s_battle_details[120];
+static char s_battle_matchup[120];
 
 static bool PresenceConnected(void)
 {
@@ -220,6 +223,7 @@ static bool SendActivity(void)
 {
     char json[1024];
     char location[256];
+    char details[256];
     char state[320];
     unsigned long pid;
 #ifdef _WIN32
@@ -228,15 +232,22 @@ static bool SendActivity(void)
     pid = (unsigned long)getpid();
 #endif
     EscapeJson(s_location[0] ? s_location : "Sinnoh", location, sizeof(location));
-    snprintf(state, sizeof(state), "%s", "At the main menu");
-    if (s_location[0]) snprintf(state, sizeof(state), "Exploring %s", location);
+    EscapeJson(s_battle_active ? s_battle_details : "Sinnoh Adventure",
+               details, sizeof(details));
+    if (s_battle_active) {
+        EscapeJson(s_battle_matchup, state, sizeof(state));
+    } else if (s_location[0]) {
+        snprintf(state, sizeof(state), "Exploring %s", location);
+    } else {
+        snprintf(state, sizeof(state), "At the main menu");
+    }
     snprintf(json, sizeof(json),
              "{\"cmd\":\"SET_ACTIVITY\",\"nonce\":\"laketrio-%u\","
              "\"args\":{\"pid\":%lu,\"activity\":{\"type\":0,"
-             "\"details\":\"Sinnoh Adventure\",\"state\":\"%s\","
+             "\"details\":\"%s\",\"state\":\"%s\","
              "\"timestamps\":{\"start\":%lld},"
              "\"assets\":{\"large_image\":\"%s\",\"large_text\":\"Lake Trio\"}}}}",
-             ++s_nonce, pid, state, (long long)s_started, DISCORD_ICON_KEY);
+             ++s_nonce, pid, details, state, (long long)s_started, DISCORD_ICON_KEY);
     return SendFrame(1, json);
 }
 
@@ -257,6 +268,34 @@ void DiscordPresence_SetLocation(const char *location)
 void DiscordPresence_ClearLocation(void)
 {
     DiscordPresence_SetLocation("");
+}
+
+/* The battle layer supplies human-readable details; the transport owns IPC. */
+void DiscordPresence_SetBattle(const char *details, const char *matchup)
+{
+    char safe_details[sizeof(s_battle_details)];
+    char safe_matchup[sizeof(s_battle_matchup)];
+    if (!details) details = "Battle";
+    if (!matchup) matchup = "Preparing for battle";
+    snprintf(safe_details, sizeof(safe_details), "%s", details);
+    snprintf(safe_matchup, sizeof(safe_matchup), "%s", matchup);
+    if (!s_battle_active || strcmp(safe_details, s_battle_details) != 0 ||
+        strcmp(safe_matchup, s_battle_matchup) != 0) {
+        snprintf(s_battle_details, sizeof(s_battle_details), "%s", safe_details);
+        snprintf(s_battle_matchup, sizeof(s_battle_matchup), "%s", safe_matchup);
+        s_battle_active = true;
+        s_changed = true;
+    }
+}
+
+void DiscordPresence_ClearBattle(void)
+{
+    if (s_battle_active) {
+        s_battle_active = false;
+        s_battle_details[0] = '\0';
+        s_battle_matchup[0] = '\0';
+        s_changed = true;
+    }
 }
 
 void DiscordPresence_Tick(uint32_t milliseconds)
@@ -309,8 +348,10 @@ void DiscordPresence_Tick(uint32_t milliseconds)
             return;
         }
         if (s_changed)
-            printf("[discord] Activity submitted: %s\n",
-                   s_location[0] ? s_location : "At the main menu");
+            printf("[discord] Activity submitted: %s | %s\n",
+                   s_battle_active ? s_battle_details : "Sinnoh Adventure",
+                   s_battle_active ? s_battle_matchup :
+                   (s_location[0] ? s_location : "At the main menu"));
         s_last_send = milliseconds;
         s_changed = false;
     }

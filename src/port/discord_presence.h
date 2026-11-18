@@ -7,5 +7,7 @@
 void DiscordPresence_Tick(uint32_t milliseconds);
 void DiscordPresence_SetLocation(const char *location);
 void DiscordPresence_ClearLocation(void);
+void DiscordPresence_SetBattle(const char *details, const char *matchup);
+void DiscordPresence_ClearBattle(void);
 
 #endif
