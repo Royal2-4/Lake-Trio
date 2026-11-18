@@ -102,6 +102,15 @@ static bool s_quitPromptOpen;
 static bool s_cancelQuitPrompt;
 static int s_lastWindowedMode = 2;
 
+// Shared by the dashboard and the native port's in-game Exit option.
+// SDL_QUIT uses the simulator's existing shutdown path on both platforms.
+void SIM_GUI_Prj_RequestQuit(void)
+{
+    SDL_Event event = {0};
+    event.type = SDL_QUIT;
+    SDL_PushEvent(&event);
+}
+
 static bool DashboardEnabled(void)
 {
     const char *disable = getenv("LAKE_TRIO_UI_DISABLE");
@@ -895,9 +904,7 @@ void SIM_GUI_Prj_Toolbar(int canImport)
                 }
                 igSameLine(0.0f, 8.0f);
                 if (igButton("Quit##confirm", (ImVec2){ 115.0f, 32.0f })) {
-                    SDL_Event event = {0};
-                    event.type = SDL_QUIT;
-                    SDL_PushEvent(&event);
+                    SIM_GUI_Prj_RequestQuit();
                     s_quitPromptOpen = false;
                     igCloseCurrentPopup();
                 }
