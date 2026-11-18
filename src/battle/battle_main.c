@@ -608,7 +608,12 @@ static void BattleMain_InitGraphics(ApplicationManager *appMan)
 
     PaletteData_FillBufferRange(battleSys->paletteData, PLTTBUF_MAIN_BG, PLTTSEL_BOTH, sBackgroundColors[battleSys->background][offset], 0, 112);
     PaletteData_FillBufferRange(battleSys->paletteData, PLTTBUF_MAIN_BG, PLTTSEL_BOTH, sBackgroundColors[battleSys->background][offset], 0xC * 16, 0xC * 16 + 4 * 16);
+#ifndef SDK_PORT
+    // The original DS starts the battle entrance with a solid-colored OBJ palette.
+    // Native PC builds preserve the already-loaded terrain and Pokeball palettes,
+    // avoiding visible solid-color sprites before the frame-28 restoration.
     PaletteData_FillBufferRange(battleSys->paletteData, PLTTBUF_MAIN_OBJ, PLTTSEL_BOTH, sBackgroundColors[battleSys->background][offset], 0, ((16 - 2) * 16) - 1);
+#endif
 
     PaletteData_FillBufferRange(battleSys->paletteData, PLTTBUF_MAIN_BG, PLTTSEL_FADED, 0, 10 * 16, 10 * 16 + 2 * 16);
     PaletteData_FillBufferRange(battleSys->paletteData, PLTTBUF_SUB_BG, PLTTSEL_FADED, 0, 0, 255);
