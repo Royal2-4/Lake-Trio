@@ -3,6 +3,10 @@
 #include <nitro.h>
 #include <string.h>
 
+#ifdef SDK_PORT
+#include "generated/object_events_gfx.h"
+#endif
+
 #include "struct_decls/map_object.h"
 #include "struct_decls/map_object_manager.h"
 
@@ -1992,6 +1996,15 @@ static Billboard *ov5_021EE454(MapObject *param0, int param1, UnkFuncPtr_ov5_021
     Billboard_SetFrameNum(v11->unk_24, Billboard_GetFrameNum(v10));
     Billboard_AdvanceAnim(v11->unk_24, 0);
     Billboard_SetDrawFlag(v11->unk_24, 1);
+#ifdef SDK_PORT
+    // During the Pokemon Center healing graphics change, the temporary
+    // outgoing billboard can display corrupt texture data. Keep its
+    // resource-transfer and cleanup lifecycle, but do not draw it.
+    // The new healing billboard remains visible and animated normally.
+    if (param1 == OBJ_EVENT_GFX_UNK_200 || param1 == OBJ_EVENT_GFX_UNK_201) {
+        Billboard_SetDrawFlag(v11->unk_24, 0);
+    }
+#endif
     Billboard_TryRequestVRAMTransfer(v11->unk_24);
 
     {
