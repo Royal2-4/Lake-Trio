@@ -579,6 +579,7 @@ static void DashboardDisplaySettings(void)
         "8x (2048x1536)",
         "9x (2304x1728)",
         "10x (2560x1920)",
+        "11x (2816x2112)",
     };
     const int renderModeCount = (int)(sizeof(renderModes) / sizeof(renderModes[0]));
     const char *layoutNames[] = { "Vertical", "Horizontal", "Large Screen", "One Screen", "One Screen S" };
