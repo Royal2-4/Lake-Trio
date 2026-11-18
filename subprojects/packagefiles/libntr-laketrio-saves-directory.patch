@@ -1,0 +1,59 @@
+diff --git a/include/nitro/card/backup.h b/include/nitro/card/backup.h
+index 3906011..a118f58 100644
+--- a/include/nitro/card/backup.h
++++ b/include/nitro/card/backup.h
+@@ -13,2 +13,18 @@
+ #include <string.h>
++#ifdef _WIN32
++#include <direct.h>
++#else
++#include <sys/stat.h>
++#endif
++
++// Keep the PC save in the game's saves/ directory. No legacy save migration.
++SDK_INLINE FILE *CARDi_OpenSaveFile(const char *mode)
++{
++#ifdef _WIN32
++    (void)_mkdir("saves");
++#else
++    (void)mkdir("saves", 0777);
++#endif
++    return fopen("saves/save.bin", mode);
++}
+ #endif
+@@ -117,9 +133,13 @@ u32 CARD_GetBackupPageSize(void);
+     FILE * backupFilePtr;
+-    backupFilePtr = fopen("save.bin", "rb");
++    backupFilePtr = CARDi_OpenSaveFile("rb");
+     if(!backupFilePtr) {
+       // File does not exist. Create the file
+-      backupFilePtr = fopen("save.bin", "wb");
+-
++      backupFilePtr = CARDi_OpenSaveFile("wb");
++      if (!backupFilePtr) return FALSE;
+       // Zero out the file with the len
+       u8 * buf = (u8*)malloc(len + src);
++      if (!buf) {
++        fclose(backupFilePtr);
++        return FALSE;
++      }
+       memset(buf, 0, len + src);
+@@ -130,4 +150,5 @@ u32 CARD_GetBackupPageSize(void);
+       // Reopen file
+-      backupFilePtr = fopen("save.bin", "rb");
++      backupFilePtr = CARDi_OpenSaveFile("rb");
+     }
++    if (!backupFilePtr) return FALSE;
+     fseek(backupFilePtr, src, SEEK_SET);
+@@ -167,3 +188,4 @@ u32 CARD_GetBackupPageSize(void);
+     FILE * backupFilePtr;
+-    backupFilePtr = fopen("save.bin", "rb+");
++    backupFilePtr = CARDi_OpenSaveFile("rb+");
++    if (!backupFilePtr) return FALSE;
+     fseek(backupFilePtr, dst, SEEK_SET);
+@@ -214,3 +236,4 @@ u32 CARD_GetBackupPageSize(void);
+     FILE * backupFilePtr;
+-    backupFilePtr = fopen("save.bin", "rb+");
++    backupFilePtr = CARDi_OpenSaveFile("rb+");
++    if (!backupFilePtr) return FALSE;
+     fseek(backupFilePtr, dst, SEEK_SET);
