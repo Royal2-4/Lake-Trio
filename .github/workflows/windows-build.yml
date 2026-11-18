@@ -159,6 +159,16 @@ jobs:
             throw 'main.exe not found in build_win64'
           }
           Compress-Archive -Path (Join-Path $dist '*') -DestinationPath $archive -CompressionLevel Optimal -Force
+          # ZIP formats can carry empty directories. Ensure saves/ exists even
+          # if the archive command omits it because it has no files yet.
+          $zip = [System.IO.Compression.ZipFile]::Open($archive, [System.IO.Compression.ZipArchiveMode]::Update)
+          try {
+            if (-not ($zip.Entries | Where-Object { $_.FullName -eq 'saves/' })) {
+              $null = $zip.CreateEntry('saves/')
+            }
+          } finally {
+            $zip.Dispose()
+          }
           if ((Get-Item $archive).Length -eq 0) { throw 'Distribution ZIP is empty' }
           $digest = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
           "$digest  Lake-Trio-Windows-x86_64.zip" | Set-Content -Path 'Lake-Trio-Windows-x86_64.sha256' -Encoding ascii

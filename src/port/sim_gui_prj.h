@@ -4,6 +4,9 @@
 
 void SIM_GUI_Prj_main(bool * p_open);
 
+// Ask the simulator to shut down through its normal SDL event loop.
+void SIM_GUI_Prj_RequestQuit(void);
+
 
 
 void GUI_CreateItem_Init();

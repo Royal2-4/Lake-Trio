@@ -153,6 +153,7 @@ compile_commands.json
 firmware.bin
 header.bin
 save.bin
+/saves/
 DbgLog.txt
 
 # Compiler caches and preserved previous build layouts

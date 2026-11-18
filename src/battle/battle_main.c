@@ -90,6 +90,15 @@
 
 #include "res/text/bank/battle_strings.h"
 
+#ifdef SDK_PORT
+#include <stdio.h>
+#include "constants/charcode.h"
+#include "message_util.h"
+#include "species.h"
+#include "../port/charcode_convert.h"
+#include "../port/discord_presence.h"
+#endif
+
 FS_EXTERN_OVERLAY(overlay10);
 FS_EXTERN_OVERLAY(overlay11);
 FS_EXTERN_OVERLAY(battle_anim);
@@ -127,6 +136,11 @@ static void G3DPipeline_SetupCallback(void);
 static void BattleSys_SetRenderControlFlags(BattleSystem *battleSys);
 static void SysTask_FlyInMessageBox(SysTask *task, void *inBattleSys);
 static BOOL TrainerIsGymLeaderE4OrChampion(u16 trainerClass);
+#ifdef SDK_PORT
+static void BattleMain_DiscordBegin(const FieldBattleDTO *dto);
+static void BattleMain_DiscordSetTitle(u32 battleType, const Trainer *trainer, int trainerID);
+static void BattleMain_DiscordUpdate(BattleSystem *battleSys);
+#endif
 static void BattleMain_AssignRecordingRoles(BattleSystem *battleSys, FieldBattleDTO *dto);
 static void BattleMain_SetNetworkIconStrength(void);
 
@@ -186,6 +200,9 @@ BOOL Battle_Main(ApplicationManager *appMan, int *state)
     switch (*state) {
     case BATTLE_STATE_CREATE_HEAP:
         Heap_Create(HEAP_ID_APPLICATION, HEAP_ID_BATTLE, 0xB0000);
+#ifdef SDK_PORT
+        BattleMain_DiscordBegin(dto);
+#endif
 
         if (dto->battleType & BATTLE_TYPE_LINK && (dto->battleStatusMask & BATTLE_STATUS_RECORDING) == FALSE) {
             *state = BATTLE_STATE_INIT_LINK_COMM;
@@ -248,6 +265,9 @@ BOOL Battle_Main(ApplicationManager *appMan, int *state)
         *state = BATTLE_STATE_MAIN;
         break;
     case BATTLE_STATE_MAIN:
+#ifdef SDK_PORT
+        BattleMain_DiscordUpdate(ApplicationManager_Data(appMan));
+#endif
         if (BattleMain_ExecuteBattlerCommands(appMan) == TRUE) {
             BattleMain_CopyBattleSysToDTOAndFree(appMan);
             *state = BATTLE_STATE_HANDLE_BATTLE_RESULT;
@@ -296,6 +316,9 @@ BOOL Battle_Main(ApplicationManager *appMan, int *state)
         }
     } break;
     case BATTLE_STATE_FINISH:
+#ifdef SDK_PORT
+        DiscordPresence_ClearBattle();
+#endif
         return TRUE;
     }
 
@@ -1381,6 +1404,190 @@ static void BattleSys_New(BattleSystem *battleSys, FieldBattleDTO *dto)
         }
     }
 }
+
+
+#ifdef SDK_PORT
+/*
+ * Discord Presence is supplementary: never alter BattleContext, save data,
+ * battle scheduling, or the DS build. Species names are resolved only when
+ * a visible battler changes, rather than on every battle frame.
+ */
+static u16 s_discordLastSpecies[MAX_BATTLERS];
+static int s_discordLastBattlerCount;
+static char s_discordBattleTitle[120];
+
+static void BattleMain_DiscordBegin(const FieldBattleDTO *dto)
+{
+    int i;
+    for (i = 0; i < MAX_BATTLERS; ++i) {
+        s_discordLastSpecies[i] = 0xFFFF;
+    }
+    s_discordLastBattlerCount = -1;
+    s_discordBattleTitle[0] = '\0';
+
+    /* The field DTO already has the trainer name before any Pokémon are sent out.
+     * Resolve it now so even the first (preparing) Discord update has a name. */
+    BattleMain_DiscordSetTitle(dto->battleType,
+        &dto->trainer[BATTLER_ENEMY_1], dto->trainerIDs[BATTLER_ENEMY_1]);
+    DiscordPresence_SetBattle(s_discordBattleTitle, "Preparing for battle");
+}
+
+static const char *BattleMain_DiscordTrainerCategory(u16 trainerClass)
+{
+    switch (trainerClass) {
+    case TRAINER_CLASS_LEADER_ROARK:
+    case TRAINER_CLASS_LEADER_GARDENIA:
+    case TRAINER_CLASS_LEADER_WAKE:
+    case TRAINER_CLASS_LEADER_MAYLENE:
+    case TRAINER_CLASS_LEADER_FANTINA:
+    case TRAINER_CLASS_LEADER_CANDICE:
+    case TRAINER_CLASS_LEADER_BYRON:
+    case TRAINER_CLASS_LEADER_VOLKNER:
+        return "Gym Battle";
+    case TRAINER_CLASS_ELITE_FOUR_AARON:
+    case TRAINER_CLASS_ELITE_FOUR_BERTHA:
+    case TRAINER_CLASS_ELITE_FOUR_FLINT:
+    case TRAINER_CLASS_ELITE_FOUR_LUCIAN:
+        return "Elite Four Battle";
+    case TRAINER_CLASS_CHAMPION_CYNTHIA:
+        return "Champion Battle";
+    default:
+        return "Trainer Battle";
+    }
+}
+
+/*
+ * Trainer_Encounter already places the correct localized name in the DTO.
+ * Most NPC names are packed 9-bit charcodes preceded by CHAR_COMPRESSED_MARK.
+ * The normal ASCII converter cannot read that packed representation. Use
+ * Platinum's own String_ConcatTrainerName to unpack it first. This also works
+ * for the rival's player-selected (uncompressed) name.
+ */
+static void BattleMain_DiscordCopyTrainerName(const charcode_t *chars, u32 count,
+                                              char *out, size_t capacity)
+{
+    String *raw = NULL;
+    String *expanded = NULL;
+    u32 i;
+    size_t written = 0;
+
+    if (out == NULL || capacity == 0) return;
+    out[0] = '\0';
+    if (chars == NULL || count == 0) return;
+
+    /* Includes the source's CHAR_EOS. The destination has room for more than
+     * the maximum seven visible trainer-name characters plus terminators. */
+    raw = String_Init(count + 1, HEAP_ID_BATTLE);
+    expanded = String_Init(64, HEAP_ID_BATTLE);
+    if (raw != NULL && expanded != NULL) {
+        String_CopyNumChars(raw, chars, count);
+        String_ConcatTrainerName(expanded, raw);
+
+        /* CharCode_ToAsciiString uses an unchecked table lookup. Convert only
+         * validated codes and explicitly null-terminate the output. */
+        for (i = 0; i < expanded->size && written + 1 < capacity; ++i) {
+            char ch[2] = {0};
+            if (expanded->data[i] == CHAR_EOS) break;
+            if (expanded->data[i] > CHAR_WIDE_UNDERSCORE) continue;
+            CharCode_ToAsciiString(&expanded->data[i], ch, 1);
+            if (ch[0] != '\0') out[written++] = ch[0];
+        }
+        out[written] = '\0';
+    }
+    if (expanded != NULL) String_Free(expanded);
+    if (raw != NULL) String_Free(raw);
+}
+
+static void BattleMain_DiscordSetTitle(u32 type, const Trainer *trainer, int trainerID)
+{
+    if (type & BATTLE_TYPE_LINK) {
+        snprintf(s_discordBattleTitle, sizeof(s_discordBattleTitle), "Link Battle");
+    } else if (type & BATTLE_TYPE_TRAINER) {
+        const char *category = BattleMain_DiscordTrainerCategory(trainer->header.trainerType);
+        char name[48] = {0};
+
+        /* The field DTO name is already localized, and may be compressed.
+         * No second NARC lookup is needed at battle startup. */
+        BattleMain_DiscordCopyTrainerName(trainer->name,
+            TRAINER_NAME_LEN + 1, name, sizeof(name));
+        if (name[0]) {
+            snprintf(s_discordBattleTitle, sizeof(s_discordBattleTitle),
+                     "%s: %s", category, name);
+        } else {
+            snprintf(s_discordBattleTitle, sizeof(s_discordBattleTitle), "%s", category);
+        }
+        printf("[discord] Trainer name resolved: id=%d class=%u packed=%s name=%s\n",
+            trainerID, (unsigned)trainer->header.trainerType,
+            trainer->name[0] == CHAR_COMPRESSED_MARK ? "yes" : "no",
+            name[0] ? name : "<unavailable>");
+    } else if (type & (BATTLE_TYPE_SAFARI | BATTLE_TYPE_PAL_PARK)) {
+        snprintf(s_discordBattleTitle, sizeof(s_discordBattleTitle), "Safari Battle");
+    } else {
+        snprintf(s_discordBattleTitle, sizeof(s_discordBattleTitle), "Wild Battle");
+    }
+}
+
+static void BattleMain_DiscordAppendSpecies(char *out, size_t capacity, u16 species)
+{
+    String *name;
+    char ascii[40] = {0};
+    size_t used;
+    int count;
+    if (species == 0 || species >= SPECIES_BAD_EGG) return;
+    name = MessageUtil_SpeciesName(species, HEAP_ID_BATTLE);
+    if (!name) return;
+    count = name->size < sizeof(ascii) - 1 ? name->size : sizeof(ascii) - 1;
+    CharCode_ToAsciiString(name->data, ascii, count);
+    String_Free(name);
+    if (!ascii[0]) return;
+    used = strlen(out);
+    if (used < capacity) {
+        snprintf(out + used, capacity - used, "%s%s", used ? " & " : "", ascii);
+    }
+}
+
+static void BattleMain_DiscordUpdate(BattleSystem *battleSys)
+{
+    u16 species[MAX_BATTLERS] = {0};
+    char player[84] = {0};
+    char enemy[84] = {0};
+    char matchup[120];
+    int count;
+    int i;
+    int changed;
+
+    if (!battleSys || !battleSys->battleInitialized || !battleSys->battleCtx) return;
+    count = battleSys->maxBattlers;
+    if (count < 2 || count > MAX_BATTLERS) return;
+
+    changed = s_discordLastBattlerCount != count;
+    for (i = 0; i < count; ++i) {
+        species[i] = battleSys->battleCtx->battleMons[i].species;
+        if (s_discordLastSpecies[i] != species[i]) changed = 1;
+    }
+    if (!changed) return;
+
+    if (!s_discordBattleTitle[0]) {
+        BattleMain_DiscordSetTitle(battleSys->battleType,
+            &battleSys->trainers[BATTLER_ENEMY_1],
+            battleSys->trainerIDs[BATTLER_ENEMY_1]);
+    }
+    for (i = 0; i < count; ++i) {
+        if (i & 1) {
+            BattleMain_DiscordAppendSpecies(enemy, sizeof(enemy), species[i]);
+        } else {
+            BattleMain_DiscordAppendSpecies(player, sizeof(player), species[i]);
+        }
+    }
+    snprintf(matchup, sizeof(matchup), "%s vs %s",
+             player[0] ? player : "Sending out Pokemon",
+             enemy[0] ? enemy : "Sending out Pokemon");
+    DiscordPresence_SetBattle(s_discordBattleTitle, matchup);
+
+    for (i = 0; i < count; ++i) s_discordLastSpecies[i] = species[i];
+    s_discordLastBattlerCount = count;
+}
+#endif // SDK_PORT
 
 static BOOL TrainerIsGymLeaderE4OrChampion(u16 trainerClass)
 {

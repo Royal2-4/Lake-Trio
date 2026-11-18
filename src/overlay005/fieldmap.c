@@ -79,11 +79,21 @@
 #include "unk_0202419C.h"
 #include "unk_020559DC.h"
 #include "vram_transfer.h"
+#ifdef SDK_PORT
+#include "map_header_util.h"
+#include "string_gf.h"
+#include "../port/charcode_convert.h"
+#include "../port/discord_presence.h"
+#endif
 
 #define FIELD_MAP_INIT_STATE_RESET         0
 #define FIELD_MAP_INIT_STATE_LOAD          1
 #define FIELD_MAP_INIT_STATE_BOTTOM_SCREEN 2
 #define FIELD_MAP_INIT_STATE_DONE          3
+
+#ifdef SDK_PORT
+static int s_presenceMapID = -1;
+#endif
 
 FS_EXTERN_OVERLAY(overlay6);
 FS_EXTERN_OVERLAY(overlay7);
@@ -153,6 +163,9 @@ static BOOL FieldMap_Init(ApplicationManager *appMan, int *state)
 
     switch (*state) {
     case FIELD_MAP_INIT_STATE_RESET:
+#ifdef SDK_PORT
+        s_presenceMapID = -1;
+#endif
         SetVBlankCallback(NULL, NULL);
         DisableHBlank();
 
@@ -252,6 +265,24 @@ static BOOL FieldMap_Init(ApplicationManager *appMan, int *state)
 static BOOL FieldMap_Main(ApplicationManager *appMan, int *param1)
 {
     FieldSystem *fieldSystem = ApplicationManager_Args(appMan);
+
+#ifdef SDK_PORT
+    /* Resolve on map changes only, using the game's own English location text. */
+    int currentMap = fieldSystem->location->mapHeaderID;
+    if (currentMap != s_presenceMapID) {
+        String *name = String_Init(128, HEAP_ID_FIELD1);
+        if (name) {
+            char ascii[128] = {0};
+            MapHeader_LoadName(currentMap, HEAP_ID_FIELD1, name);
+            int length = name->size < sizeof(ascii) - 1 ? name->size : sizeof(ascii) - 1;
+            CharCode_ToAsciiString(name->data, ascii, length);
+            if (!ascii[0]) strcpy(ascii, "Sinnoh Region");
+            DiscordPresence_SetLocation(ascii);
+            String_Free(name);
+        }
+        s_presenceMapID = currentMap;
+    }
+#endif
 
     if (FieldSystem_UpdateLocationToPlayerPosition(fieldSystem)) {
         BerryPatches_UpdateGrowthStates(fieldSystem);

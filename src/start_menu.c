@@ -1,5 +1,9 @@
 #include "start_menu.h"
 
+#ifdef SDK_PORT
+#include "port/sim_gui_prj.h"
+#endif
+
 #include <nitro.h>
 #include <stdio.h>
 
@@ -1145,6 +1149,11 @@ static BOOL StartMenu_Select(FieldTask *fieldTask)
                 menu->state = START_MENU_STATE_END;
             }
         } else if (menu->input == START_MENU_OPTION_EXIT) {
+#ifdef SDK_PORT
+            // Desktop Exit Game shuts down the application. The original DS
+            // build retains its normal Exit (close menu) behavior.
+            SIM_GUI_Prj_RequestQuit();
+#endif
             menu->state = START_MENU_STATE_END;
         } else if (sStartMenuActions[menu->input].callback != (void *)MENU_NOTHING_CHOSEN) {
             FieldTaskFunc actionTask = sStartMenuActions[menu->input].callback;

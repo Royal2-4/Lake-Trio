@@ -30,6 +30,9 @@ def prepare(output, cache):
 
 def install(output, defaults):
     output, defaults = Path(output), Path(defaults)
+    # Provide the save directory in fresh desktop distributions before any ROM import.
+    # Existing save files and settings are left untouched.
+    (output / 'saves').mkdir(parents=True, exist_ok=True)
     for name in ('game.ini', 'sim_config.ini'):
         destination = output / name
         # Exclusive creation also preserves a file created concurrently.

@@ -1,8 +1,20 @@
 diff --git a/libraries/sim/src/config/sim_config.c b/libraries/sim/src/config/sim_config.c
-index 231b404..f359b19 100644
+index 231b404..229d5dd 100644
 --- a/libraries/sim/src/config/sim_config.c
 +++ b/libraries/sim/src/config/sim_config.c
-@@ -617,7 +617,8 @@ void SIM_Config_LoadDefaults(SIM_config_type * aConfig)
+@@ -570,8 +570,9 @@
+ void SIM_Config_LoadDefaults(SIM_config_type * aConfig)
+ {
+     aConfig->autosaveEnabled = TRUE;
+-    aConfig->movementSpeed = 2;
+-    aConfig->battleSpeed = 2;
++    // x1 (index zero) is the default unless an existing INI overrides it.
++    aConfig->movementSpeed = 0;
++    aConfig->battleSpeed = 0;
+     aConfig->cameraDistance = 1;
+     aConfig->cameraDistanceIncreaseKey = SDLK_PLUS;
+     aConfig->cameraDistanceDecreaseKey = SDLK_MINUS;
+@@ -617,7 +618,8 @@
  #ifdef SDK_BUILD_NX
      aConfig->internalResolutionScale = 2;
  #else
@@ -12,3 +24,12 @@ index 231b404..f359b19 100644
  #endif
      aConfig->windowSizeMode = 2;
      aConfig->customWindowWidth = 0;
+@@ -626,7 +628,7 @@
+     aConfig->screenLayout = SIM_CONFIG_SCREEN_LAYOUT_LARGE;
+     aConfig->swapScreens = FALSE;
+     aConfig->vsyncEnabled = TRUE;
+-    aConfig->frameRateMode = SIM_CONFIG_FRAME_RATE_AUTO;
++    aConfig->frameRateMode = SIM_CONFIG_FRAME_RATE_30;
+     aConfig->monitor = 1;
+     aConfig->showFps = FALSE;
+     aConfig->crtEnabled = FALSE;

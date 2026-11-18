@@ -3,7 +3,7 @@ url = https://github.com/cybervisi0n/libntr.git
 revision = 6bee622411de6d998474f8193bbdcbcc0d14d768
 depth = 1
 directory = libntr
-diff_files = libntr-pokeplatinum.patch, libntr-steamdeck-mouse.patch, libntr-laketrio-toolbar.patch, libntr-laketrio-dashboard.patch, libntr-laketrio-panels.patch, libntr-laketrio-resolution.patch, libntr-laketrio-ui-navigation.patch, libntr-laketrio-hotplug.patch, libntr-laketrio-gamepad-refresh.patch, libntr-laketrio-audio.patch, libntr-laketrio-nav-bindings.patch, libntr-laketrio-staged-bindings.patch, libntr-laketrio-single-screen.patch, libntr-laketrio-shortcut-conflicts.patch, libntr-laketrio-one-screen-smart.patch, libntr-laketrio-nintendo-controller-defaults.patch, libntr-laketrio-r3-hotfix.patch, libntr-laketrio-default-4x.patch
+diff_files = libntr-pokeplatinum.patch, libntr-steamdeck-mouse.patch, libntr-laketrio-toolbar.patch, libntr-laketrio-dashboard.patch, libntr-laketrio-panels.patch, libntr-laketrio-resolution.patch, libntr-laketrio-ui-navigation.patch, libntr-laketrio-hotplug.patch, libntr-laketrio-gamepad-refresh.patch, libntr-laketrio-audio.patch, libntr-laketrio-nav-bindings.patch, libntr-laketrio-staged-bindings.patch, libntr-laketrio-single-screen.patch, libntr-laketrio-shortcut-conflicts.patch, libntr-laketrio-one-screen-smart.patch, libntr-laketrio-nintendo-controller-defaults.patch, libntr-laketrio-r3-hotfix.patch, libntr-laketrio-default-4x.patch, libntr-laketrio-saves-directory.patch, libntr-laketrio-readable-font.patch
 
 [provide]
 dependency_names = NitroSDK

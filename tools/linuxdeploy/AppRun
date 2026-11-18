@@ -14,6 +14,9 @@ export QT_PLUGIN_PATH
 # No ROM, imported assets, settings or save from the build machine is bundled.
 if [ -n "${APPIMAGE:-}" ]; then
     DataDir=$(dirname -- "$APPIMAGE")
+    # An AppImage ships as one file: create its companion saves folder before
+    # the game starts, so users can import a save before importing their ROM.
+    mkdir -p -- "$DataDir/saves"
 else
     DataDir=$APPDIR
     APPIMAGE="$APPDIR/AppRun"

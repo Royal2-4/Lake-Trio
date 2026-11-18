@@ -1,0 +1,69 @@
+diff --git a/libraries/sim/src/gui/gui.c b/libraries/sim/src/gui/gui.c
+--- a/libraries/sim/src/gui/gui.c
++++ b/libraries/sim/src/gui/gui.c
+@@ -2,6 +2,7 @@
+ #include <simulator/sim.h>
+ #include <math.h>
+ #include <stdlib.h>
++#include <stdio.h>
+ #include <string.h>
+ #ifdef _WIN32
+ #include <SDL2/SDL_syswm.h>
+@@ -34,6 +35,43 @@
+ static ImGuiStyle s_baseStyle;
+ static float s_uiScale;
+ static float s_fontDensity;
++static ImFont *s_lakeTrioDashboardFont;
++
++// The simulator retains its original default font. Only Lake Trio's dashboard
++// uses an optional OS-provided sans-serif, so no font file ships with the game.
++ImFont *LakeTrio_GUI_GetDashboardFont(void)
++{
++    return s_lakeTrioDashboardFont;
++}
++
++static ImFont *LoadLakeTrioDashboardFont(ImFontAtlas *atlas, float pixelSize)
++{
++#ifdef _WIN32
++    const char *paths[] = {
++        "C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf"
++    };
++#elif defined(__APPLE__)
++    const char *paths[] = {
++        "/System/Library/Fonts/Supplemental/Arial.ttf"
++    };
++#else
++    const char *paths[] = {
++        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
++        "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
++        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
++        "/usr/share/fonts/TTF/DejaVuSans.ttf",
++        "/usr/share/fonts/noto/NotoSans-Regular.ttf"
++    };
++#endif
++    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); ++i) {
++        FILE *file = fopen(paths[i], "rb");
++        if (!file) continue; // Avoid ImGui assertions on missing font paths.
++        fclose(file);
++        ImFont *loaded = ImFontAtlas_AddFontFromFileTTF(atlas, paths[i], pixelSize, NULL, NULL);
++        if (loaded) return loaded;
++    }
++    return NULL; // Existing built-in font remains a safe fallback.
++}
+-
++
+ static void ApplyMonitorScale(float scale, float density)
+ {
+@@ -46,10 +84,12 @@
+     ImGuiIO *io = igGetIO_ContextPtr(SIM_GUI_ig_context);
+     ImGui_ImplOpenGL3_DestroyFontsTexture();
+     ImFontAtlas_Clear(io->Fonts);
++    s_lakeTrioDashboardFont = NULL;
+     ImFontConfig *font = ImFontConfig_ImFontConfig();
+     font->SizePixels = 13.0f * scale * density;
+     ImFontAtlas_AddFontDefault(io->Fonts, font);
+     ImFontConfig_destroy(font);
++    s_lakeTrioDashboardFont = LoadLakeTrioDashboardFont(io->Fonts, 17.0f * scale * density);
+     io->FontGlobalScale = 1.0f / density;
+     ImGui_ImplOpenGL3_CreateFontsTexture();
+ }
