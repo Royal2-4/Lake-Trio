@@ -40,7 +40,7 @@ Take your experience anywhere with the Steam Deck. Lake Trio eliminates mouse-cl
 
 ### Crystal clear. Pixel by pixel.
 
-Experience optional internal 3D rendering scaled up to **10x resolution (2560 × 1920)** from the native 256 × 192 DS resolution. The dashboard offers clear pixel counts and precise scaling multipliers. Drop into borderless fullscreen, match your display's native resolution, and witness unprecedented visual clarity.
+Experience optional internal 3D rendering scaled up to **11x resolution (2816x2112)** from the native 256 × 192 DS resolution. The dashboard offers clear pixel counts and precise scaling multipliers. Drop into borderless fullscreen, match your display's native resolution, and witness unprecedented visual clarity.
 
 <br>
 
@@ -98,9 +98,27 @@ Interact naturally using your mouse or touch screen. Map the Steam Deck trackpad
 
 <br>
 
+### How do patch versions work?
+
+<p align="left">
+<img width="358" height="358"  align="left" alt="Screenshot 2026-11-17 202440" src="https://github.com/user-attachments/assets/f4535814-0aab-4fe5-8f87-456a25362835" style="margin-right: 15px;" />
+
+  I use a VA.B.C system for my patch tags, and to help players get a bit more insight on what is being offered in it. 
+
+  V**A**.0.0 patches are for fully redesigned and enhanced feature, that should greatly change how a player experiences Lake Trio. Like what got introduces with One Screen S in V2.0.0.
+
+  VA.**B**.0 patches are for smaller feature updates. This was the first iteration of One Screen; a small feature update, but not greatly enhancing gameplay yet. ex. VA.B.0 patches will also include when I get Discord Rich Presence implemented into Lake Trio. 
+
+  VA.B.**C** patches are for hotfix updates, like this one. It doesn't include a new feature, just a fix for something that should have already worked.  
+</p>
+<br clear="all">
+
+
 ### Included mods
 
-Open MODS in the game menu and select a mod to change its settings.
+Open MODS in the game menu and select a mod to change its settings. 
+    
+    Only Auto HM and New Evolutions (doesn't req trade) are enabled by default. 
 
 <details>
 <summary><b>View All Game Mods & Features</b> (Click to expand)</summary>
