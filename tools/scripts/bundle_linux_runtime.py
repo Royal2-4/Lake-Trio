@@ -81,7 +81,7 @@ def bundle(appdir, builddir, projectdir):
     defaults.mkdir(parents=True)
     shutil.copy2(projectdir / "icon.png", defaults / "icon.png")
     retired = {"quicksave_f5", "restart_f9", "bag_sort", "poketch_keyboard",
-               "speed", "camera_distance", "autohm"}
+               "speed", "camera_distance", "autohm", "level_cap"}
     for source in (builddir / "mods").glob("*"):
         if source.suffix not in {".lua", ".so"} or source.stem in retired:
             continue
@@ -101,9 +101,11 @@ def bundle(appdir, builddir, projectdir):
             target = defaults / "mods/fast_ball_battle"
             target.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target / name)
-    target = defaults / "mods/level_cap"
+    # Distribute Level Cap without including it in the active mod scan.
+    target = defaults / "Unapplied Mods/level_cap"
     target.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(projectdir / "mods/level_cap/level_caps.json", target / "level_caps.json")
+    for name in ("level_cap.lua", "level_caps.json"):
+        shutil.copy2(projectdir / "mods/level_cap" / name, target / name)
     licenses = appdir / "usr/share/licenses/pokeplatinum"
     licenses.mkdir(parents=True, exist_ok=True)
     for source in (builddir / "mods").glob("*-license.txt"):

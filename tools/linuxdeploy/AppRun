@@ -22,6 +22,39 @@ else
     APPIMAGE="$APPDIR/AppRun"
     export APPIMAGE
 fi
+# Migrate older default-on Level Cap files before populating shipped defaults.
+# The marker prevents later launches from undoing a user's manual re-enable.
+OptionalRoot="$DataDir/Unapplied Mods"
+OptionalLevelCap="$OptionalRoot/level_cap"
+LevelCapTransition="$OptionalRoot/.level-cap-v251-migrated"
+if [ ! -e "$LevelCapTransition" ]; then
+    mkdir -p -- "$OptionalLevelCap"
+    for File in \
+        "$DataDir/mods/level_cap/level_cap.lua" \
+        "$DataDir/mods/level_cap/level_caps.json" \
+        "$DataDir/mods/level_cap.lua" \
+        "$DataDir/mods/level_caps.json" \
+        "$DataDir/mods/level_cap/level_cap.so" \
+        "$DataDir/mods/level_cap.so"; do
+        [ -f "$File" ] || continue
+        Name=$(basename -- "$File")
+        Target="$OptionalLevelCap/$Name"
+        if [ -e "$Target" ]; then
+            if cmp -s -- "$File" "$Target"; then
+                rm -f -- "$File"
+                continue
+            fi
+            Target="$OptionalLevelCap/previous-active-$Name"
+            while [ -e "$Target" ]; do
+                Target="$Target.bak"
+            done
+        fi
+        mv -- "$File" "$Target"
+    done
+    rmdir -- "$DataDir/mods/level_cap" 2>/dev/null || true
+    : > "$LevelCapTransition"
+fi
+
 Defaults="$APPDIR/usr/share/pokeplatinum/defaults"
 if [ -d "$Defaults" ]; then
     (cd "$Defaults" && find . -type f) | while IFS= read -r File; do
