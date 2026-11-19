@@ -38,7 +38,7 @@ for ModExtension in so dylib dll; do
   fi
   for ModFile in "$BUILDDIR"/mods/*.$ModExtension; do
     ModName=$(basename "$ModFile" .$ModExtension)
-    case "$ModName" in quicksave_f5|restart_f9|bag_sort|poketch_keyboard|speed|camera_distance|autohm) continue ;; esac
+    case "$ModName" in level_cap|quicksave_f5|restart_f9|bag_sort|poketch_keyboard|speed|camera_distance|autohm) continue ;; esac
     [ ! -f "$BUILDDIR/mods/$ModName.lua" ] || continue
     mkdir -p "$OUTPUTDIR/mods/$ModName"
     ModStaging=$(mktemp "$OUTPUTDIR/mods/$ModName/.module.XXXXXX")
@@ -74,6 +74,8 @@ done
 for LuaFile in "$BUILDDIR"/mods/*.lua; do
   [ -f "$LuaFile" ] || continue
   ModName=$(basename "$LuaFile" .lua)
+  # Level Cap is distributed as an optional mod, not in the active mod scan.
+  [ "$ModName" != "level_cap" ] || continue
   mkdir -p "$OUTPUTDIR/mods/$ModName"
   cp "$LuaFile" "$OUTPUTDIR/mods/$ModName/$ModName.lua"
   for ModExtension in so dylib dll; do
@@ -108,24 +110,59 @@ for ResourceFile in \
   fi
 done
 
-mkdir -p "$OUTPUTDIR/mods/level_cap"
-if [ ! -e "$OUTPUTDIR/mods/level_cap/level_caps.json" ]; then
-  if [ -e "$OUTPUTDIR/mods/level_caps.json" ]; then
-    mv "$OUTPUTDIR/mods/level_caps.json" "$OUTPUTDIR/mods/level_cap/level_caps.json" || exit 1
-  else
-    cp "$PROJECTDIR/mods/level_cap/level_caps.json" "$OUTPUTDIR/mods/level_cap/level_caps.json" || exit 1
-  fi
-elif [ -e "$OUTPUTDIR/mods/level_caps.json" ]; then
-  if cmp -s "$OUTPUTDIR/mods/level_caps.json" "$OUTPUTDIR/mods/level_cap/level_caps.json"; then
-    rm -f "$OUTPUTDIR/mods/level_caps.json"
-  else
-    PreservedConfig="$OUTPUTDIR/mods/level_cap/level_caps.json.previous-flat"
-    while [ -e "$PreservedConfig" ]; do
-      PreservedConfig="$PreservedConfig.bak"
+# Level Cap stays optional. Previous releases could leave an executable copy
+# in mods/ even after installing Unapplied Mods/level_cap; migrate once, then
+# respect a user's deliberate re-enable on subsequent builds.
+OptionalRoot="$OUTPUTDIR/Unapplied Mods"
+OptionalLevelCap="$OptionalRoot/level_cap"
+ActiveLevelCap="$OUTPUTDIR/mods/level_cap"
+LevelCapTransition="$OptionalRoot/.level-cap-v251-migrated"
+mkdir -p "$OptionalLevelCap"
+
+MoveLegacyLevelCap() {
+  local Source="$1"
+  [ -f "$Source" ] || return 0
+  local Name Destination
+  Name=$(basename "$Source")
+  Destination="$OptionalLevelCap/$Name"
+  if [ -e "$Destination" ]; then
+    if cmp -s "$Source" "$Destination"; then
+      rm -f "$Source" || return 1
+      return 0
+    fi
+    Destination="$OptionalLevelCap/previous-active-$Name"
+    while [ -e "$Destination" ]; do
+      Destination="$Destination.bak"
     done
-    mv "$OUTPUTDIR/mods/level_caps.json" "$PreservedConfig" || exit 1
   fi
+  mv "$Source" "$Destination"
+}
+
+if [ ! -e "$LevelCapTransition" ]; then
+  for OldFile in \
+    "$ActiveLevelCap/level_cap.lua" \
+    "$ActiveLevelCap/level_caps.json" \
+    "$OUTPUTDIR/mods/level_cap.lua" \
+    "$OUTPUTDIR/mods/level_caps.json"; do
+    MoveLegacyLevelCap "$OldFile" || exit 1
+  done
+  for ModExtension in so dylib dll; do
+    MoveLegacyLevelCap "$ActiveLevelCap/level_cap.$ModExtension" || exit 1
+    MoveLegacyLevelCap "$OUTPUTDIR/mods/level_cap.$ModExtension" || exit 1
+  done
+  rmdir "$ActiveLevelCap" 2>/dev/null || true
+  : > "$LevelCapTransition"
 fi
+
+for Name in level_cap.lua level_caps.json; do
+  if [ ! -e "$OptionalLevelCap/$Name" ]; then
+    cp "$PROJECTDIR/mods/level_cap/$Name" "$OptionalLevelCap/$Name" || exit 1
+  fi
+done
+
+# An incremental Meson build can retain this obsolete flat Lua file.
+# Remove it from the compiler directory so it cannot be loaded there either.
+rm -f "$BUILDDIR/mods/level_cap.lua"
 
 if [[ "$(uname -s)" =~ ^(MSYS|MINGW64|UCRT64)_NT.* ]]; then
   for Library in SDL2 libwinpthread-1 libenet-7 libgcc_s_seh-1 libstdc++-6 libffi-8; do
